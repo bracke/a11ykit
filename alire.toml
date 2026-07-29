@@ -1,0 +1,18 @@
+name = "a11ykit"
+description = "Accessibility backend: a semantic UI tree for OS screen readers"
+version = "0.1.0-dev"
+
+authors = ["Bent Bracke"]
+maintainers = ["Bent Bracke <bent@bracke.dk>"]
+maintainers-logins = ["bracke"]
+licenses = "MIT"
+website = ""
+tags = ["accessibility", "a11y", "ui", "portability"]
+
+[[depends-on]]
+gnat_native = "=15.2.1"
+
+# Build in the development profile (-Og), like the sibling UI/host crates, so an
+# uninitialised read cannot hide behind -O3 until it reaches someone else's machine.
+[build-profiles]
+"*" = "development"
