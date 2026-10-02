@@ -41,9 +41,24 @@ project A11ykit is
      external ("A11YKIT_LIBRARY_TYPE", external ("LIBRARY_TYPE", "static"));
    for Library_Kind use Library_Type;
 
+   package Naming is
+      --  GPR's Objective-C language does not supply a default body suffix.
+      --  Without this mapping the macOS bridge is silently omitted and every
+      --  native provider symbol remains unresolved in downstream programs.
+      for Body_Suffix ("Objective-C") use ".m";
+   end Naming;
+
    package Compiler is
       for Default_Switches ("Ada") use
         A11y_Config.Ada_Compiler_Switches & ("-gnat2022", "-gnatyM120", "-gnatX", "-gnatwU");
+      case A11y_Config.Alire_Host_OS is
+         when "macos" =>
+            for Driver ("Objective-C") use "";
+            for Leading_Required_Switches ("Objective-C") use ("-c");
+            for PIC_Option ("Objective-C") use ("-fPIC");
+         when others =>
+            null;
+      end case;
    end Compiler;
 
    package Linker is
