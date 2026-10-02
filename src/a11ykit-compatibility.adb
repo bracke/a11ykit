@@ -50,7 +50,17 @@ package body A11ykit.Compatibility is
       Result (A11y.States.Showing) := True;
 
       if State.Selected then
-         Result (A11y.States.Selected) := True;
+         case Role is
+            when A11ykit.Role_List_Item | A11ykit.Role_Table_Row =>
+               Result (A11y.States.Selected) := True;
+            when A11ykit.Role_Button =>
+               --  Legacy draw lists use Selected for the active member of a
+               --  toolbar button group. A semantic Button is not a selectable
+               --  collection item; its corresponding state is Pressed.
+               Result (A11y.States.Pressed) := True;
+            when others =>
+               null;
+         end case;
       end if;
 
       if State.Focused then
@@ -59,13 +69,13 @@ package body A11ykit.Compatibility is
 
       case Role is
          when A11ykit.Role_Button | A11ykit.Role_Text_Input |
-              A11ykit.Role_List_Item =>
+              A11ykit.Role_List_Item | A11ykit.Role_Table_Row =>
             Result (A11y.States.Focusable) := True;
          when others =>
             null;
       end case;
 
-      if Role = A11ykit.Role_List_Item then
+      if Role in A11ykit.Role_List_Item | A11ykit.Role_Table_Row then
          Result (A11y.States.Selectable) := True;
       end if;
 
@@ -306,8 +316,14 @@ package body A11ykit.Compatibility is
          type Node_Id_Map is array
            (Tree.Nodes.First_Index .. Tree.Nodes.Last_Index)
             of A11y.Node_Ids.Node_Id;
+         type Attachment_Map is array
+           (Tree.Nodes.First_Index .. Tree.Nodes.Last_Index) of Boolean;
+         type Index_Path is array (Positive range <>) of Positive;
          Created : Node_Id_Map := [others => A11y.Node_Ids.No_Node];
+         Attached : Attachment_Map := [others => False];
+         Path : Index_Path (1 .. Natural (Tree.Nodes.Length));
          Root : A11y.Node_Ids.Node_Id := A11y.Node_Ids.No_Node;
+         Root_Index : Natural := 0;
       begin
          for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
             declare
@@ -334,6 +350,7 @@ package body A11ykit.Compatibility is
 
                if Tree.Nodes (Index).Parent = 0 then
                   Root := Created (Index);
+                  Root_Index := Index;
                end if;
             end;
          end loop;
@@ -348,23 +365,53 @@ package body A11ykit.Compatibility is
             Result := Check_Result;
             return;
          end if;
+         Attached (Root_Index) := True;
 
+         --  Build accepts a flat list in reading order, so a geometrically
+         --  inferred parent may occur after its child in that list. Attach each
+         --  pending node's ancestor chain from the top down instead of assuming
+         --  vector order is already topological.
          for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
-            declare
-               Parent_Index : constant Natural := Tree.Nodes (Index).Parent;
-            begin
-               if Parent_Index /= 0 then
-                  A11y.Sessions.Attach
-                    (Self   => Session,
-                     Parent => Created (Parent_Index),
-                     Child  => Created (Index),
-                     Result => Check_Result);
-                  if A11y.Results.Failed (Check_Result) then
-                     Result := Check_Result;
-                     return;
-                  end if;
-               end if;
-            end;
+            if not Attached (Index) then
+               declare
+                  Current : Natural := Index;
+                  Depth   : Natural := 0;
+               begin
+                  while not Attached (Current) loop
+                     Depth := Depth + 1;
+                     if Depth > Path'Length then
+                        Result := (Status => A11y.Results.Invalid_State);
+                        return;
+                     end if;
+
+                     Path (Depth) := Current;
+                     Current := Tree.Nodes (Current).Parent;
+                     if Current = 0 then
+                        Result := (Status => A11y.Results.Invalid_State);
+                        return;
+                     end if;
+                  end loop;
+
+                  for Position in reverse 1 .. Depth loop
+                     declare
+                        Child_Index : constant Positive := Path (Position);
+                        Parent_Index : constant Positive :=
+                          Tree.Nodes (Child_Index).Parent;
+                     begin
+                        A11y.Sessions.Attach
+                          (Self   => Session,
+                           Parent => Created (Parent_Index),
+                           Child  => Created (Child_Index),
+                           Result => Check_Result);
+                        if A11y.Results.Failed (Check_Result) then
+                           Result := Check_Result;
+                           return;
+                        end if;
+                        Attached (Child_Index) := True;
+                     end;
+                  end loop;
+               end;
+            end if;
          end loop;
 
          if Tree.Focused /= 0 then

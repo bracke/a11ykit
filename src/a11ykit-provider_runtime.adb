@@ -13,9 +13,13 @@ package body A11ykit.Provider_Runtime is
    use Ada.Strings.Unbounded;
 
    type Session_Access is access A11y.Sessions.Semantic_Session;
+   type Backend_Access is access A11y.Backends.Backend'Class;
    procedure Free is new Ada.Unchecked_Deallocation
      (Object => A11y.Sessions.Semantic_Session,
       Name   => Session_Access);
+   procedure Free is new Ada.Unchecked_Deallocation
+     (Object => A11y.Backends.Backend'Class,
+      Name   => Backend_Access);
 
    protected Publication_State is
       procedure Store
@@ -72,56 +76,69 @@ package body A11ykit.Provider_Runtime is
       Session : Session_Access := new A11y.Sessions.Semantic_Session;
       Selection : constant A11y.Backends.Selection.Selection_Result :=
         A11y.Backends.Selection.Resolve ("default");
-      Backend : A11y.Backends.Backend'Class :=
-        A11y.Backends.Default.Create_Default;
+      Backend : Backend_Access := null;
       Pump_Report : A11y.Backends.Event_Pumps.Pump_All_Report;
       Result : A11y.Results.Result;
       Pump_Result : A11y.Results.Result;
       Stop_Result : A11y.Results.Result;
    begin
+      --  Native and validating backends carry bounded node-state tables. Keep
+      --  them off callers' task stacks for the same reason as the semantic
+      --  session: provider publication is valid from a GUI task with a small
+      --  configured stack.
+      Backend := new A11y.Backends.Backend'Class'
+        (A11y.Backends.Default.Create_Default);
       A11ykit.Compatibility.Populate_Session (Tree, Session.all, Result);
       if A11y.Results.Failed (Result) then
          Publication_State.Store
            (Result.Status, 0, "", Selection.Fallback, Selection.Status);
          Free (Session);
+         Free (Backend);
          return;
       end if;
 
-      Result := Backend.Start;
+      Result := Backend.all.Start;
       if A11y.Results.Failed (Result) then
          Publication_State.Store
-           (Result.Status, 0, Backend.Name, Selection.Fallback,
+           (Result.Status, 0, Backend.all.Name, Selection.Fallback,
             Selection.Status);
          Free (Session);
+         Free (Backend);
          return;
       end if;
 
       A11y.Backends.Event_Pumps.Pump_All_With_Report
-        (Session.all, Backend, Pump_Report, Pump_Result);
-      Stop_Result := Backend.Stop;
+        (Session.all, Backend.all, Pump_Report, Pump_Result);
+      Stop_Result := Backend.all.Stop;
 
       if A11y.Results.Failed (Pump_Result) then
          Publication_State.Store
-           (Pump_Result.Status, Pump_Report.Delivered, Backend.Name,
+           (Pump_Result.Status, Pump_Report.Delivered, Backend.all.Name,
             Selection.Fallback, Selection.Status);
          Free (Session);
+         Free (Backend);
          return;
       elsif A11y.Results.Failed (Stop_Result) then
          Publication_State.Store
-           (Stop_Result.Status, Pump_Report.Delivered, Backend.Name,
+           (Stop_Result.Status, Pump_Report.Delivered, Backend.all.Name,
             Selection.Fallback, Selection.Status);
          Free (Session);
+         Free (Backend);
          return;
       end if;
 
       Publication_State.Store
-        (A11y.Results.Success, Pump_Report.Delivered, Backend.Name,
+        (A11y.Results.Success, Pump_Report.Delivered, Backend.all.Name,
          Selection.Fallback, Selection.Status);
       Free (Session);
+      Free (Backend);
    exception
       when others =>
          if Session /= null then
             Free (Session);
+         end if;
+         if Backend /= null then
+            Free (Backend);
          end if;
          Publication_State.Store
            (A11y.Results.Internal_Error, 0, "", False,

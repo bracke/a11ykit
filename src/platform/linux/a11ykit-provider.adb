@@ -1,4 +1,5 @@
 with Ada.Strings.Unbounded;
+with Ada.Unchecked_Deallocation;
 
 with A11ykit.Compatibility;
 with A11ykit.Provider_Runtime;
@@ -63,7 +64,9 @@ package body A11ykit.Provider is
       Metadata : A11y.Semantic_Snapshots.Node_Metadata;
       Check    : A11y.Results.Result;
    begin
-      Snapshots := (others => <>);
+      --  Publish allocates a fresh, default-initialized bundle. Reassigning the
+      --  25+ MiB aggregate here would materialize a temporary on the caller's
+      --  task stack before copying it into the heap-owned bundle.
       Snapshots.Accessible.Nodes :=
         A11ykit.Compatibility.To_Semantic_Snapshot (Tree, Result);
       if A11y.Results.Failed (Result) then
@@ -203,13 +206,27 @@ package body A11ykit.Provider is
    end Stop;
 
    procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
+      type Semantic_Access is access A11y.Sessions.Semantic_Session;
+      type Snapshot_Access is access
+        A11y.Linux.ATSPi_Method_Router.Snapshot_Bundle;
+      procedure Free is new Ada.Unchecked_Deallocation
+        (A11y.Sessions.Semantic_Session, Semantic_Access);
+      procedure Free is new Ada.Unchecked_Deallocation
+        (A11y.Linux.ATSPi_Method_Router.Snapshot_Bundle, Snapshot_Access);
+
       Root : A11y.Node_Ids.Node_Id;
       Result : A11y.Results.Result;
-      Semantic : A11y.Sessions.Semantic_Session;
-      Snapshots : A11y.Linux.ATSPi_Method_Router.Snapshot_Bundle;
+      Semantic : Semantic_Access := null;
+      Snapshots : Snapshot_Access := null;
       Delivered : Natural := 0;
       Event_Loop_Report :
         A11y.Linux.ATSPi_Backend_Sessions.Event_Loop_Bounded_Report;
+
+      procedure Release_Working_State is
+      begin
+         Free (Semantic);
+         Free (Snapshots);
+      end Release_Working_State;
    begin
       Root := Root_Node (Tree, Result);
       if A11y.Results.Failed (Result) then
@@ -218,14 +235,23 @@ package body A11ykit.Provider is
          return;
       end if;
 
-      Build_Snapshots (Tree, Root, Snapshots, Result);
+      --  Both semantic sessions and native snapshot bundles contain bounded
+      --  stores sized for a complete accessibility tree. Keep them off the
+      --  caller's stack: GUI and test runtimes commonly give Ada tasks a much
+      --  smaller stack than the main environment task.
+      Semantic := new A11y.Sessions.Semantic_Session;
+      Snapshots := new A11y.Linux.ATSPi_Method_Router.Snapshot_Bundle;
+
+      Build_Snapshots (Tree, Root, Snapshots.all, Result);
       if A11y.Results.Failed (Result) then
+         Release_Working_State;
          A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
 
-      A11ykit.Compatibility.Populate_Session (Tree, Semantic, Result);
+      A11ykit.Compatibility.Populate_Session (Tree, Semantic.all, Result);
       if A11y.Results.Failed (Result) then
+         Release_Working_State;
          A11ykit.Provider_Runtime.Record_Publish_Result
            (Result.Status, 0, Backend_Name, False, Result.Status);
          return;
@@ -240,31 +266,36 @@ package body A11ykit.Provider is
       if A11y.Results.Failed (Result)
         or else not A11y.Linux.ATSPi_Backend_Sessions.Registered (Session)
       then
+         Release_Working_State;
          A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
 
-      Publish_Queued_Events (Semantic, Delivered, Result);
+      Publish_Queued_Events (Semantic.all, Delivered, Result);
       if A11y.Results.Failed (Result) then
          A11y.Linux.ATSPi_Backend_Sessions.Stop (Session, Result);
+         Release_Working_State;
          A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
 
       A11y.Linux.ATSPi_Backend_Sessions.Drive_Bounded_Event_Loop
-        (Session, Snapshots, 8, 0, Event_Loop_Report, Result);
+        (Session, Snapshots.all, 8, 0, Event_Loop_Report, Result);
       if Result.Status = A11y.Results.Backend_Unavailable then
          Result := A11y.Results.Ok;
       elsif A11y.Results.Failed (Result) then
          A11y.Linux.ATSPi_Backend_Sessions.Stop (Session, Result);
+         Release_Working_State;
          A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
 
+      Release_Working_State;
       A11ykit.Provider_Runtime.Record_Publish_Result
         (Result.Status, Delivered, Backend_Name, False, Result.Status);
    exception
       when others =>
+         Release_Working_State;
          A11ykit.Provider_Runtime.Record_Publish_Result
            (A11y.Results.Internal_Error, 0, Backend_Name, False,
             A11y.Results.Internal_Error);

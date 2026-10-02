@@ -1,4 +1,5 @@
 with System;
+with Ada.Unchecked_Deallocation;
 
 with A11ykit.Compatibility;
 with A11ykit.Provider_Runtime;
@@ -37,6 +38,10 @@ package body A11ykit.Provider is
    package Registry_API renames A11y.Windows_Backend.UIA_Provider_Registry;
    package Router renames A11y.Windows_Backend.UIA_Request_Router;
 
+   type Snapshot_Access is access all Router.Snapshot_Bundle;
+   procedure Free is new Ada.Unchecked_Deallocation
+     (Router.Snapshot_Bundle, Snapshot_Access);
+
    use type A11y.Results.Status_Code;
    use type A11y.Properties.Property_Status;
    use type A11y.Native_Identity.Backend_Session_Id;
@@ -46,11 +51,11 @@ package body A11ykit.Provider is
 
    Registry : aliased Registry_API.Provider_Registry;
    Object_Table : aliased Exports.COM_Object_Export_Table;
-   Snapshots : aliased Router.Snapshot_Bundle;
+   Snapshots : Snapshot_Access := new Router.Snapshot_Bundle;
    Callback_Context : aliased Callbacks.Callback_Context :=
      (Object_Table => Object_Table'Access,
       Registry     => Registry'Access,
-      Snapshots    => Snapshots'Access,
+      Snapshots    => Snapshots,
       others       => <>);
    Session : A11y.Native_Identity.Backend_Session_Id :=
      A11y.Native_Identity.No_Session;
@@ -144,7 +149,6 @@ package body A11ykit.Provider is
       Focused  : A11y.Node_Ids.Node_Id :=
         A11ykit.Compatibility.Focused_Node (Tree);
    begin
-      Snapshots := (others => <>);
       Snapshots.Properties.Nodes :=
         A11ykit.Compatibility.To_Semantic_Snapshot (Tree, Result);
       if A11y.Results.Failed (Result) then
@@ -261,6 +265,17 @@ package body A11ykit.Provider is
       when others =>
          Result := (Status => A11y.Results.Internal_Error);
    end Build_Snapshots;
+
+   procedure Reset_Snapshots is
+      Previous : Snapshot_Access := Snapshots;
+   begin
+      --  Snapshot bundles contain several bounded semantic trees and are tens
+      --  of MiB. Replace the heap object rather than constructing a reset
+      --  aggregate on the GUI task's stack.
+      Snapshots := new Router.Snapshot_Bundle;
+      Callback_Context.Snapshots := Snapshots;
+      Free (Previous);
+   end Reset_Snapshots;
 
    function Create_Callback_Host return System.Address is
    begin
@@ -466,9 +481,13 @@ package body A11ykit.Provider is
    end Stop;
 
    procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
+      type Semantic_Access is access A11y.Sessions.Semantic_Session;
+      procedure Free is new Ada.Unchecked_Deallocation
+        (A11y.Sessions.Semantic_Session, Semantic_Access);
+
       Root : A11y.Node_Ids.Node_Id;
       Result : A11y.Results.Result;
-      Semantic : A11y.Sessions.Semantic_Session;
+      Semantic : Semantic_Access := null;
       Delivered : Natural := 0;
       Export_Report : A11y.Windows_Backend.UIA_Public_Roots
         .Public_Root_Export_Report;
@@ -480,23 +499,28 @@ package body A11ykit.Provider is
          return;
       end if;
 
-      A11ykit.Compatibility.Populate_Session (Tree, Semantic, Result);
+      Semantic := new A11y.Sessions.Semantic_Session;
+      A11ykit.Compatibility.Populate_Session (Tree, Semantic.all, Result);
       if A11y.Results.Failed (Result) then
+         Free (Semantic);
          A11ykit.Provider_Runtime.Record_Publish_Result
            (Result.Status, 0, Backend_Name, False, Result.Status);
          return;
       end if;
 
       if Native.Bridge_Is_Windows = 0 then
+         Free (Semantic);
          A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
 
       Stop;
+      Reset_Snapshots;
       Session := A11y.Native_Identity.Create_Session;
-      Build_Snapshots (Tree, Root, Session, Snapshots, Result);
+      Build_Snapshots (Tree, Root, Session, Snapshots.all, Result);
       if A11y.Results.Failed (Result) then
          Stop;
+         Free (Semantic);
          A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
@@ -511,6 +535,7 @@ package body A11ykit.Provider is
         or else not Export_Report.Fragment_Root_Interface_Queryable
       then
          Stop;
+         Free (Semantic);
          A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
@@ -521,17 +546,20 @@ package body A11ykit.Provider is
       Published := Provider_Host /= System.Null_Address;
       if not Published then
          Stop;
+         Free (Semantic);
          A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
 
-      Publish_Queued_Events (Semantic, Delivered, Result);
+      Publish_Queued_Events (Semantic.all, Delivered, Result);
       if A11y.Results.Failed (Result) then
          Stop;
+         Free (Semantic);
          A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
 
+      Free (Semantic);
       A11ykit.Provider_Runtime.Record_Publish_Result
         (A11y.Results.Success,
          Delivered,
@@ -540,6 +568,7 @@ package body A11ykit.Provider is
          A11y.Results.Success);
    exception
       when others =>
+         Free (Semantic);
          A11ykit.Provider_Runtime.Record_Publish_Result
            (A11y.Results.Internal_Error, 0, Backend_Name, False,
             A11y.Results.Internal_Error);
