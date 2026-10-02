@@ -13,6 +13,8 @@ gnat_native = "=15.2.1"
 
 [[depends-on]]
 a11y = "*"
+hostkit = "*"
+messages = "*"
 
 [[pins]]
 a11y = { path = ".." }
