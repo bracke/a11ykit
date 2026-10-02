@@ -16,6 +16,8 @@ a11y = "*"
 
 [[pins]]
 a11y = { path = ".." }
+hostkit = { path = "../../hostkit" }
+messages = { path = "../../messages" }
 
 [[depends-on]]
 project_tools = "*"
