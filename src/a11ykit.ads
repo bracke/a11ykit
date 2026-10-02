@@ -15,6 +15,7 @@ with Ada.Strings.Unbounded;
 --  This root package holds only the vocabulary shared by the tree and the
 --  provider: the roles a node can have, its on-screen rectangle, and its state.
 package A11ykit is
+   pragma Elaborate_Body;
 
    subtype UString is Ada.Strings.Unbounded.Unbounded_String;
 

@@ -1,11 +1,54 @@
 with "../a11ykit.gpr";
+with "../../hostkit/hostkit.gpr";
+with "../../project_tools/project_tools.gpr";
+with "config/a11y_tests_config.gpr";
 project A11ykit_Tests is
 
-   for Source_Dirs use ("src");
+   case A11y_Tests_Config.Alire_Host_OS is
+      when "windows" =>
+         for Languages use ("Ada", "C");
+         for Source_Dirs use ("src");
+         for Excluded_Source_Files use
+           ("a11ykit_tests.adb",
+            "a11y_fixture_application.adb",
+            "a11y_fixture_application.ads",
+            "capability_matrix.adb",
+            "documentation_report.adb",
+            "fixture_application.adb",
+            "fixture_report.adb",
+            "native_client_atspi.adb",
+            "native_client_nsax.adb",
+            "native_observation_report.adb",
+            "public_surface_audit.adb",
+            "release_check.adb",
+            "release_qualification.adb");
+         for Main use
+           ("native_client_uia.adb",
+            "uia_router_tests.adb",
+            "windows_vm_probe.adb");
+      when others =>
+         for Languages use ("Ada", "C");
+         for Source_Dirs use
+           ("src", "../src/platform/windows", "../native/windows");
+         for Excluded_Source_Files use ("a11ykit-provider.adb");
+         for Main use
+            ("a11ykit_tests.adb",
+            "capability_matrix.adb",
+            "fixture_application.adb",
+            "documentation_report.adb",
+            "fixture_report.adb",
+            "native_client_atspi.adb",
+            "native_client_uia.adb",
+            "native_observation_report.adb",
+            "public_surface_audit.adb",
+            "release_qualification.adb",
+            "release_check.adb",
+            "uia_router_tests.adb",
+            "windows_vm_probe.adb");
+   end case;
    for Object_Dir use "obj";
    for Exec_Dir use "bin";
    for Create_Missing_Dirs use "True";
-   for Main use ("a11ykit_tests.adb");
 
    package Compiler is
       for Default_Switches ("Ada") use ("-g", "-gnat2022", "-gnatwa");
@@ -14,5 +57,15 @@ project A11ykit_Tests is
    package Binder is
       for Switches ("Ada") use ("-Es");
    end Binder;
+
+   package Linker is
+      case A11y_Tests_Config.Alire_Host_OS is
+         when "windows" =>
+            for Switches ("Ada") use
+              ("-lole32", "-loleaut32", "-luiautomationcore", "-luuid");
+         when others =>
+            for Switches ("Ada") use ();
+      end case;
+   end Linker;
 
 end A11ykit_Tests;

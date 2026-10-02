@@ -1,0 +1,53 @@
+with "config/a11y_tests_config.gpr";
+with "../../hostkit/hostkit.gpr";
+
+project NSAX_Router_Tests is
+
+   case A11y_Tests_Config.Alire_Host_OS is
+      when "macos" =>
+         for Languages use ("Ada", "C", "Objective-C");
+         for Source_Dirs use
+            ("src",
+             "src/platform/macos",
+             "../src",
+             "../src/platform/linux",
+             "../src/platform/windows",
+             "../src/platform/macos",
+             "../native/macos");
+      when others =>
+         for Languages use ("Ada");
+         for Source_Dirs use
+            ("src",
+             "src/platform/unsupported",
+             "../src",
+             "../src/platform/linux",
+             "../src/platform/windows",
+             "../src/platform/macos");
+   end case;
+   for Excluded_Source_Files use ("a11ykit-provider.adb");
+   for Object_Dir use "obj/nsax_router";
+   for Exec_Dir use "bin";
+   for Create_Missing_Dirs use "True";
+   for Main use ("nsax_router_tests.adb", "native_client_nsax.adb");
+
+   package Compiler is
+      for Default_Switches ("Ada") use ("-g", "-gnat2022", "-gnatwa");
+   end Compiler;
+
+   package Binder is
+      for Switches ("Ada") use ("-Es");
+   end Binder;
+
+   package Linker is
+      case A11y_Tests_Config.Alire_Host_OS is
+         when "macos" =>
+            for Switches ("Ada") use
+              ("-framework", "AppKit",
+               "-framework", "Foundation",
+               "-framework", "ApplicationServices");
+         when others =>
+            for Switches ("Ada") use ();
+      end case;
+   end Linker;
+
+end NSAX_Router_Tests;

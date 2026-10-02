@@ -1,17 +1,24 @@
-name = "a11ykit"
-description = "Accessibility backend: a semantic UI tree for OS screen readers"
+name = "a11y"
+description = "Platform-neutral accessibility provider library for OS screen readers"
 version = "0.1.0-dev"
+project-files = ["a11ykit.gpr"]
 
 authors = ["Bent Bracke"]
 maintainers = ["Bent Bracke <bent@bracke.dk>"]
 maintainers-logins = ["bracke"]
 licenses = "MIT"
 website = ""
-long-description = "a11ykit is the per-OS seam that publishes an accessibility tree to the host's screen-reader service: AT-SPI over D-Bus on Linux, UI Automation on Windows, NSAccessibility on macOS. The specification is shared so a consumer talks to one API whichever host it is on, and the semantic UI tree it publishes is described once rather than per platform. The host providers are not implemented yet; the shared surface is what exists today."
+long-description = "a11y is the platform-neutral Ada accessibility provider library that publishes a semantic accessibility tree to the host's screen-reader service: AT-SPI over D-Bus on Linux, UI Automation on Windows, and NSAccessibility on macOS. Applications describe semantics once through the A11y package hierarchy. The original A11ykit packages remain as compatibility facades while the native backends are expanded."
 tags = ["accessibility", "a11y", "ui", "portability"]
 
 [[depends-on]]
 gnat_native = "=15.2.1"
+hostkit = "*"
+messages = "*"
+
+[[pins]]
+hostkit = { path = "../hostkit" }
+messages = { path = "../messages" }
 
 # Build in the development profile (-Og), like the sibling UI/host crates, so an
 # uninitialised read cannot hide behind -O3 until it reaches someone else's machine.

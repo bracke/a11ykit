@@ -1,24 +1,38 @@
-with "config/a11ykit_config.gpr";
+with "config/a11y_config.gpr";
+with "hostkit.gpr";
+with "messages.gpr";
 project A11ykit is
 
    for Library_Name use "A11ykit";
-   for Library_Version use Project'Library_Name & ".so." & A11ykit_Config.Crate_Version;
+   for Library_Version use Project'Library_Name & ".so." & A11y_Config.Crate_Version;
 
    --  The provider body is per-OS: each host talks to its own screen-reader
    --  service (AT-SPI over D-Bus on Linux, UI Automation on Windows, the
    --  NSAccessibility protocol on macOS). The platform-agnostic tree model and
    --  the provider spec live in src/ and are shared.
-   case A11ykit_Config.Alire_Host_OS is
+   case A11y_Config.Alire_Host_OS is
       when "windows" =>
-         for Source_Dirs use ("src/", "config/", "src/platform/windows");
+         for Languages use ("Ada", "C");
+         for Source_Dirs use
+           ("src/",
+            "config/",
+            "src/platform/windows",
+            "native/windows");
       when "macos" =>
-         for Source_Dirs use ("src/", "config/", "src/platform/macos");
+         for Languages use ("Ada", "C", "Objective-C");
+         for Source_Dirs use
+           ("src/",
+            "config/",
+            "src/platform/macos",
+            "native/macos");
       when "linux" =>
+         for Languages use ("Ada");
          for Source_Dirs use ("src/", "config/", "src/platform/linux");
       when others =>
+         for Languages use ("Ada");
          for Source_Dirs use ("src/", "config/", "src/platform/unsupported");
    end case;
-   for Object_Dir use "obj/" & A11ykit_Config.Build_Profile;
+   for Object_Dir use "obj/" & A11y_Config.Build_Profile;
    for Create_Missing_Dirs use "True";
    for Library_Dir use "lib";
 
@@ -29,8 +43,20 @@ project A11ykit is
 
    package Compiler is
       for Default_Switches ("Ada") use
-        A11ykit_Config.Ada_Compiler_Switches & ("-gnat2022", "-gnatyM120", "-gnatX", "-gnatwU");
+        A11y_Config.Ada_Compiler_Switches & ("-gnat2022", "-gnatyM120", "-gnatX", "-gnatwU");
    end Compiler;
+
+   package Linker is
+      case A11y_Config.Alire_Host_OS is
+         when "macos" =>
+            for Linker_Options use
+              ("-framework", "AppKit",
+               "-framework", "Foundation",
+               "-framework", "ApplicationServices");
+         when others =>
+            null;
+      end case;
+   end Linker;
 
    package Binder is
       for Switches ("Ada") use ("-Es"); --  Symbolic traceback

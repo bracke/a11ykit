@@ -1,0 +1,22 @@
+with System;
+
+with A11y.Windows_Backend.UIA_Native_Bridge;
+
+package A11y_UIA_Native_Probe_Callbacks is
+
+   function Return_S_OK
+     (Session  : A11y.Windows_Backend.UIA_Native_Bridge.Native_UInt64;
+      Provider : A11y.Windows_Backend.UIA_Native_Bridge.Native_UInt64;
+      Method   : A11y.Windows_Backend.UIA_Native_Bridge.Native_UInt32;
+      Context  : System.Address)
+      return A11y.Windows_Backend.UIA_Native_Bridge.Native_UInt32
+   with Convention => C;
+
+   function Return_Frame_S_OK
+     (Frame   : access constant
+        A11y.Windows_Backend.UIA_Native_Bridge.Native_UInt64;
+      Context : System.Address)
+      return A11y.Windows_Backend.UIA_Native_Bridge.Native_UInt32
+   with Convention => C;
+
+end A11y_UIA_Native_Probe_Callbacks;

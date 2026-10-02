@@ -1,0 +1,12 @@
+name = "a11y_tests"
+description = "Conformance and regression tests for a11y/a11ykit"
+version = "0.1.0-dev"
+project-files = ["all_tests.gpr"]
+
+authors = ["Bent Bracke"]
+maintainers = ["Bent Bracke <bent@bracke.dk>"]
+maintainers-logins = ["bracke"]
+licenses = "MIT"
+
+[[depends-on]]
+gnat_native = "=15.2.1"

@@ -3,6 +3,7 @@
 /bin/
 /alire/
 /config/
+/vm/
 
 tests/obj/
 tests/bin/
