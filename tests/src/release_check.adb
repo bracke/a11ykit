@@ -242,12 +242,16 @@ procedure Release_Check is
          and then File_Contains ("alire/alire.lock", "version = ""15.2.1"""),
          "root Alire lockfile no longer resolves the gnat_native 15.2.1 toolchain release");
       Check
-        (File_Contains ("a11ykit.gpr", "../hostkit/hostkit.gpr"),
+        (File_Contains ("a11ykit.gpr", "with ""hostkit.gpr"";")
+         and then File_Contains ("alire.toml", "hostkit = ""*""")
+         and then File_Contains
+           ("alire.toml", "hostkit = { path = ""../hostkit"" }"),
          "root project no longer links the hostkit platform facility crate");
       Check
-        (File_Contains ("a11ykit.gpr", "a11y_messages.gpr")
-         and then File_Contains ("a11y_messages.gpr", "../messages/src")
-         and then File_Contains ("a11y_messages.gpr", "../i18n/i18n.gpr"),
+        (File_Contains ("a11ykit.gpr", "with ""messages.gpr"";")
+         and then File_Contains ("alire.toml", "messages = ""*""")
+         and then File_Contains
+           ("alire.toml", "messages = { path = ""../messages"" }"),
          "root project no longer links the repository localization stack");
       Check
         (File_Contains ("src/a11y-platforms.adb", "with Hostkit.Host;")
@@ -1758,14 +1762,13 @@ procedure Release_Check is
            ("a11ykit.gpr", "for Languages use (""Ada"")"),
          "root project no longer isolates platform-specific source directories");
       Check
-        (File_Contains
+        (File_Contains ("tests/nsax_router_tests.gpr", "../a11ykit.gpr")
+         and then File_Contains
            ("tests/nsax_router_tests.gpr", "config/a11y_tests_config.gpr")
          and then File_Contains
            ("tests/nsax_router_tests.gpr", "src/platform/macos")
          and then File_Contains
            ("tests/nsax_router_tests.gpr", "src/platform/unsupported")
-         and then File_Contains
-           ("tests/nsax_router_tests.gpr", "../native/macos")
          and then File_Contains
            ("tests/nsax_router_tests.gpr",
             "for Languages use (""Ada"", ""C"", ""Objective-C"")")

@@ -10,3 +10,34 @@ licenses = "MIT"
 
 [[depends-on]]
 gnat_native = "=15.2.1"
+
+[[depends-on]]
+a11y = "*"
+
+[[pins]]
+a11y = { path = ".." }
+
+[[depends-on]]
+project_tools = "*"
+
+[[pins]]
+project_tools = { path = "../../project_tools" }
+
+[[actions]]
+type = "test"
+command = ["alr", "-n", "build", "--profiles=*=development"]
+
+[[actions]]
+type = "test"
+command = ["bin/a11ykit_tests"]
+
+[[actions]]
+type = "test"
+command = ["bin/uia_router_tests"]
+
+[[actions]]
+type = "test"
+command = ["bin/nsax_router_tests"]
+
+[build-profiles]
+"*" = "development"

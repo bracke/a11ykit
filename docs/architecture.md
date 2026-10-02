@@ -2552,8 +2552,9 @@ counts are capped, and field key/value text is bounded by diagnostic maxima and
 can be tightened with `A11y.Resource_Limits.Native_String_Size`.
 `A11y.Localization` is the catalog-backed rendering boundary for user-visible
 diagnostic category and result status labels. It uses the repository `messages`
-runtime through `a11y_messages.gpr`; stable diagnostic records continue to store
-identifiers, categories, and structured fields rather than localized prose.
+crate through the Alire-resolved `messages.gpr`; stable diagnostic records
+continue to store identifiers, categories, and structured fields rather than
+localized prose.
 The conformance identifier is `diagnostics.localization`.
 Diagnostic append also requires a non-empty stable identifier and bounds both
 the identifier and optional feature identifier before retaining the record. The

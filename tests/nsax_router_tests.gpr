@@ -1,3 +1,4 @@
+with "../a11ykit.gpr";
 with "config/a11y_tests_config.gpr";
 with "../../hostkit/hostkit.gpr";
 
@@ -6,22 +7,12 @@ project NSAX_Router_Tests is
    case A11y_Tests_Config.Alire_Host_OS is
       when "macos" =>
          for Languages use ("Ada", "C", "Objective-C");
-         for Source_Dirs use
-            ("src",
-             "src/platform/macos",
-             "../src",
-             "../src/platform/linux",
-             "../src/platform/windows",
-             "../src/platform/macos",
-             "../native/macos");
+         for Source_Dirs use ("src", "src/platform/macos");
       when others =>
          for Languages use ("Ada");
          for Source_Dirs use
             ("src",
              "src/platform/unsupported",
-             "../src",
-             "../src/platform/linux",
-             "../src/platform/windows",
              "../src/platform/macos");
    end case;
    for Excluded_Source_Files use ("a11ykit-provider.adb");
