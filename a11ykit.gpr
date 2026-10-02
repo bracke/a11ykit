@@ -48,6 +48,11 @@ project A11ykit is
 
    package Linker is
       case A11y_Config.Alire_Host_OS is
+         when "windows" =>
+            --  The native UIA bridge is part of the library, so consumers
+            --  must inherit its COM, Automation, and UIA dependencies.
+            for Linker_Options use
+              ("-lole32", "-loleaut32", "-luiautomationcore", "-luuid");
          when "macos" =>
             for Linker_Options use
               ("-framework", "AppKit",
