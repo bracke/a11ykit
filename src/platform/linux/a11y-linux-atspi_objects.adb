@@ -3,6 +3,7 @@ package body A11y.Linux.ATSPi_Objects is
 
    Linux_Path_Prefix : constant String := "/org/a11y/ada/session/";
    Linux_Path_Node_Sep : constant String := "/node/";
+   Standard_Root_Path : constant String := "/org/a11y/atspi/accessible/root";
 
    function Trimmed_Image (Value : Natural) return String is
       Raw : constant String := Natural'Image (Value);
@@ -266,6 +267,14 @@ package body A11y.Linux.ATSPi_Objects is
       if not A11y.Native_Identity.Is_Valid (Session) then
          Result := (Status => A11y.Results.Node_Unavailable);
          return A11y.Node_Ids.No_Node;
+      end if;
+
+      --  libatspi looks for every application's root at this one path on
+      --  the application's bus name; without it a screen reader counts the
+      --  application dead. The application is published as the first node.
+      if Path = Standard_Root_Path then
+         Result := A11y.Results.Ok;
+         return A11y.Node_Ids.From_Natural (1);
       end if;
 
       if Path'Length <= Linux_Path_Prefix'Length + Linux_Path_Node_Sep'Length

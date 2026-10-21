@@ -1,4 +1,7 @@
 with Ada.Text_IO;
+with Ada.Calendar;
+with Ada.Command_Line;
+with Ada.Directories;
 with Ada.Strings.Unbounded;
 with Ada.Unchecked_Deallocation;
 
@@ -36,6 +39,11 @@ package body A11ykit.Provider is
    --  started once and only its snapshots are replaced, because a screen
    --  reader holds on to the application it found and its object paths.
    Latest : Snapshot_Access := null;
+
+   --  The window's focus as last reported by Set_Active, and the last tree
+   --  published, so a focus change can be published without the application.
+   Window_Active : Boolean := False;
+   Last_Tree     : A11ykit.Tree.Accessibility_Tree;
 
    --  The sequence number given to the last event handed to the backend.
    Last_Delivered : A11y.Event_Sequence := A11y.No_Event;
@@ -269,7 +277,40 @@ package body A11ykit.Provider is
       Serve (16);
    end Service;
 
-   procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
+
+   --  The tree under an application node, the root AT-SPI expects: the
+   --  application is node 1, its children the tree's top-level nodes.
+   function Under_Application
+     (Tree : A11ykit.Tree.Accessibility_Tree)
+      return A11ykit.Tree.Accessibility_Tree
+   is
+      Result : A11ykit.Tree.Accessibility_Tree;
+      Name   : constant String := Ada.Directories.Simple_Name (Ada.Command_Line.Command_Name);
+   begin
+      if Tree.Nodes.Is_Empty then
+         return Tree;
+      end if;
+      Result.Nodes.Append
+        (A11ykit.Tree.Node'
+           (Node_Role   => A11ykit.Role_Application,
+          Bounds      => Tree.Nodes.First_Element.Bounds,
+          Name        => To_Unbounded_String (Name),
+          Description => Null_Unbounded_String,
+          Node_State  => (others => <>),
+          Parent      => 0));
+      for Item of Tree.Nodes loop
+         Result.Nodes.Append ((Item with delta Parent => Item.Parent + 1));
+      end loop;
+      --  The window (the tree's root, now node 2) is active while focused.
+      Result.Nodes.Reference (2).Node_State.Active := Window_Active;
+      Result.Focused := (if Tree.Focused = 0 then 0 else Tree.Focused + 1);
+      return Result;
+   exception
+      when others =>
+         return Tree;
+   end Under_Application;
+
+   procedure Publish_Under_Application (Tree : A11ykit.Tree.Accessibility_Tree) is
       type Semantic_Access is access A11y.Sessions.Semantic_Session;
       procedure Free is new Ada.Unchecked_Deallocation
         (A11y.Sessions.Semantic_Session, Semantic_Access);
@@ -305,7 +346,6 @@ package body A11ykit.Provider is
       if A11y.Results.Failed (Result) then
          Trace ("tree not publishable (" & Result.Status'Image & ")");
          Release_Working_State;
-         A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
 
@@ -326,7 +366,6 @@ package body A11ykit.Provider is
          then
             Trace ("registration failed (" & Result.Status'Image & ")");
             Release_Working_State;
-            A11ykit.Provider_Runtime.Publish (Tree);
             return;
          end if;
       end if;
@@ -350,7 +389,6 @@ package body A11ykit.Provider is
                 & " sent); registration ended");
          A11y.Linux.ATSPi_Backend_Sessions.Stop (Session, Result);
          Release_Working_State;
-         A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
 
@@ -368,7 +406,46 @@ package body A11ykit.Provider is
          A11ykit.Provider_Runtime.Record_Publish_Result
            (A11y.Results.Internal_Error, 0, Backend_Name, False,
             A11y.Results.Internal_Error);
+   end Publish_Under_Application;
+
+   procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
+   begin
+      Last_Tree := Tree;
+      Publish_Under_Application (Under_Application (Tree));
+      --  Without a host registration the tree is validated as given.
+      if not A11y.Linux.ATSPi_Backend_Sessions.Registered (Session) then
+         A11ykit.Provider_Runtime.Publish (Tree);
+      end if;
    end Publish;
+
+   procedure Set_Active (Active : Boolean) is
+      Result : A11y.Results.Result;
+   begin
+      Trace ("window " & (if Active then "activated" else "deactivated"));
+      Window_Active := Active;
+      if Latest = null or else not A11y.Linux.ATSPi_Backend_Sessions.Registered (Session) then
+         return;
+      end if;
+      --  Answer from a tree whose window carries the new active state.
+      Publish_Under_Application (Under_Application (Last_Tree));
+      --  The window is the application node's first child (Under_Application).
+      Last_Delivered := Last_Delivered + 1;
+      A11y.Linux.ATSPi_Backend_Sessions.Queue_Event_Signal
+        (Session,
+         (Sequence  => Last_Delivered,
+          Timestamp => Ada.Calendar.Clock,
+          Source    => A11y.Node_Ids.From_Natural (2),
+          Kind      => (if Active then A11y.Events.Window_Activated else A11y.Events.Window_Deactivated),
+          Revision  => A11y.Initial_Revision),
+         Result);
+      if A11y.Results.Failed (Result) then
+         Trace ("window activation not delivered (" & Result.Status'Image & ")");
+      end if;
+      Serve (4);
+   exception
+      when others =>
+         null;
+   end Set_Active;
 
    function Last_Publish_Status return A11y.Results.Status_Code is
      (A11ykit.Provider_Runtime.Last_Publish_Status);

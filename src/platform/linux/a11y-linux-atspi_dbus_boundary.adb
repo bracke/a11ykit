@@ -378,8 +378,10 @@ package body A11y.Linux.ATSPi_DBus_Boundary is
                   Add_Property_String (Items, "Name", Name.Text);
                   Add_Property_String (Items, "Description", Description.Text);
                   Add_Property_UInt32
-                    (Items, "Role", A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos (Role.Role));
-                  Add_Property_UInt32 (Items, "ChildCount", Child_Count.UInt32);
+                    (Items, "Role", A11y.Linux.ATSPi_Mappings.Role_Code (Role.Role));
+                  Items.Append (To_Unbounded_String ("ChildCount"));
+                  Items.Append (To_Unbounded_String ("i"));
+                  Items.Append (To_Unbounded_String (UInt32_Text (Child_Count.UInt32)));
                   return Property_Map (Items);
                end;
             elsif Property_Name = "Name" then
@@ -387,9 +389,29 @@ package body A11y.Linux.ATSPi_DBus_Boundary is
             elsif Property_Name = "Description" then
                return Variant_String (Description.Text);
             elsif Property_Name = "Role" then
-               return Variant_UInt32 (A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos (Role.Role));
+               return Variant_UInt32 (A11y.Linux.ATSPi_Mappings.Role_Code (Role.Role));
             elsif Property_Name = "ChildCount" then
-               return Variant_UInt32 (Child_Count.UInt32);
+               --  AT-SPI types ChildCount as a signed integer; libatspi
+               --  refuses an unsigned one and reports -1 children.
+               return Method
+                 ((Kind   => A11y.Linux.ATSPi_Method_Router.DBus_Variant_Int32,
+                   Status => A11y.Results.Success,
+                   Int32  => Child_Count.UInt32,
+                   others => <>));
+            elsif Property_Name = "Parent" then
+               --  The application root has no parent of its own: it hangs
+               --  from the desktop, which a reply without a node refers to.
+               declare
+                  Parent : constant A11y.Linux.ATSPi_Accessible.Accessible_Reply := Ask ("GetParent");
+               begin
+                  return Method
+                    ((Kind   => A11y.Linux.ATSPi_Method_Router.DBus_Variant_Reference,
+                      Status => A11y.Results.Success,
+                      Node   =>
+                        (if Parent.Kind = A11y.Linux.ATSPi_Accessible.Node_Reply
+                         then Parent.Node else A11y.Node_Ids.No_Node),
+                      others => <>));
+               end;
             else
                return Error (A11y.Results.Unsupported_Property);
             end if;

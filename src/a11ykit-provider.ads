@@ -47,6 +47,12 @@ package A11ykit.Provider is
    --  no-op where the host delivers queries some other way.
    procedure Service;
 
+   --  Tell the screen reader the application's window gained (True) or lost
+   --  (False) the keyboard focus. A screen reader announces a window and
+   --  starts following its focus when it hears the window activate; an
+   --  application calls this when its window's focus changes.
+   procedure Set_Active (Active : Boolean);
+
    --  Result of the most recent compatibility publication attempt. This is
    --  semantic/backend validation state, not proof that a native host provider
    --  is registered; Available remains the native-registration truth.

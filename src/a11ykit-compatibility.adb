@@ -22,7 +22,8 @@ package body A11ykit.Compatibility is
         when A11ykit.Role_Table_Row  => A11y.Roles.Row,
         when A11ykit.Role_Heading    => A11y.Roles.Heading,
         when A11ykit.Role_Status     => A11y.Roles.Status,
-        when A11ykit.Role_Unknown    => A11y.Roles.Custom);
+        when A11ykit.Role_Unknown    => A11y.Roles.Custom,
+        when A11ykit.Role_Application => A11y.Roles.Application);
 
    function To_Semantic_Bounds
      (Bounds : A11ykit.Rectangle)
@@ -67,6 +68,10 @@ package body A11ykit.Compatibility is
          Result (A11y.States.Focused) := True;
       end if;
 
+      if State.Active then
+         Result (A11y.States.Active) := True;
+      end if;
+
       case Role is
          when A11ykit.Role_Button | A11ykit.Role_Text_Input |
               A11ykit.Role_List_Item | A11ykit.Role_Table_Row =>
@@ -90,7 +95,7 @@ package body A11ykit.Compatibility is
         A11y.Capabilities.Empty_Capability_Set;
    begin
       case Role is
-         when A11ykit.Role_Window | A11ykit.Role_Dialog =>
+         when A11ykit.Role_Window | A11ykit.Role_Dialog | A11ykit.Role_Application =>
             Result (A11y.Capabilities.Surface) := True;
          when A11ykit.Role_Button =>
             Result (A11y.Capabilities.Action) := True;

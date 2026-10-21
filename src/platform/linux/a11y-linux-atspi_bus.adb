@@ -611,6 +611,9 @@ package body A11y.Linux.ATSPi_Bus is
       if A11y.Results.Failed (Result) then
          return;
       end if;
+      if Message.Kind = A11y.Linux.DBus_Messages.Method_Return then
+         Message.Payload_Bus_Name := Context.Unique_Name;
+      end if;
 
       A11y.Linux.DBus_Messages.Enqueue
         (Context.Outgoing, Message, Result);

@@ -73,6 +73,11 @@ package body A11ykit_Legacy_Provider_Tests is
       return Build (Flat);
    end Reading_Order_Tree;
 
+   --  A native Linux registration publishes the tree under the application
+   --  node AT-SPI expects as its root, which adds that node's three events.
+   function Root_Events return Natural is
+     (if A11ykit.Provider.Available and then A11ykit.Provider.Backend_Name = "AT-SPI" then 3 else 0);
+
    procedure Run is
    begin
       --  Provider contract: the legacy facade may attempt native registration
@@ -86,7 +91,7 @@ package body A11ykit_Legacy_Provider_Tests is
       A11ykit.Provider.Publish (Publication_Tree);
       Check
         (A11ykit.Provider.Last_Publish_Status = A11y.Results.Success
-         and then A11ykit.Provider.Last_Published_Event_Count = 12,
+         and then A11ykit.Provider.Last_Published_Event_Count = 12 + Root_Events,
          "legacy provider facade validates and pumps semantic publication events");
       Check
         ((A11ykit.Provider.Available
@@ -105,7 +110,7 @@ package body A11ykit_Legacy_Provider_Tests is
       A11ykit.Provider.Publish (Reading_Order_Tree);
       Check
         (A11ykit.Provider.Last_Publish_Status = A11y.Results.Success
-         and then A11ykit.Provider.Last_Published_Event_Count = 8,
+         and then A11ykit.Provider.Last_Published_Event_Count = 8 + Root_Events,
          "legacy publication attaches parents before earlier children and maps selected buttons to pressed state");
       declare
          Empty : Accessibility_Tree;

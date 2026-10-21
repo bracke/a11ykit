@@ -125,7 +125,7 @@ package body A11y.Linux.ATSPi_Method_Router is
                   when A11y.Linux.ATSPi_Accessible.Role_Reply =>
                      return (Kind => Accessible_Role,
                              Status => Reply.Status,
-                             UInt32 => A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos
+                             UInt32 => A11y.Linux.ATSPi_Mappings.Role_Code
                                (Reply.Role),
                              others => <>);
                   when A11y.Linux.ATSPi_Accessible.State_Set_Reply =>
@@ -545,7 +545,7 @@ package body A11y.Linux.ATSPi_Method_Router is
                      when A11y.Linux.ATSPi_Surfaces.Role_Reply =>
                         return (Kind => Surface_Role,
                                 Status => Reply.Status,
-                                UInt32 => A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos
+                                UInt32 => A11y.Linux.ATSPi_Mappings.Role_Code
                                   (Reply.Role),
                                 others => <>);
                      when A11y.Linux.ATSPi_Surfaces.State_Set_Reply =>

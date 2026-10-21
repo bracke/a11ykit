@@ -50,6 +50,12 @@ package A11y.Linux.ATSPi_Mappings is
       Canvas,
       Filler);
 
+   --  The number AT-SPI gives a role on the wire (AtspiRole in
+   --  atspi-constants.h). It is not the role's position in ATSPI_Role: sent
+   --  as that, a window reads as an alert and a screen reader drops the
+   --  application.
+   function Role_Code (Role : ATSPI_Role) return Natural;
+
    type ATSPI_State is
      (Enabled,
       Sensitive,
@@ -75,6 +81,11 @@ package A11y.Linux.ATSPi_Mappings is
       Visited,
       Defunct,
       Active);
+
+   --  The number AT-SPI gives a state (AtspiStateType in atspi-constants.h);
+   --  a state set goes out as a 64-bit mask with this bit set, in two
+   --  32-bit words.
+   function State_Code (State : ATSPI_State) return Natural;
 
    type ATSPI_State_Set is array (ATSPI_State) of Boolean;
 

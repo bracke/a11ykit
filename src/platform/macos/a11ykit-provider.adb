@@ -447,6 +447,9 @@ package body A11ykit.Provider is
    --  message loop, which the application already pumps.
    procedure Service is null;
 
+   --  This host's window system tells its screen reader about activation.
+   procedure Set_Active (Active : Boolean) is null;
+
    function Last_Publish_Status return A11y.Results.Status_Code is
      (A11ykit.Provider_Runtime.Last_Publish_Status);
 

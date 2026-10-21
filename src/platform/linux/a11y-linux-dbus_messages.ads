@@ -81,6 +81,9 @@ package A11y.Linux.DBus_Messages is
               A11y.Linux.ATSPi_Selection.Selection_Request_Kind :=
                 A11y.Linux.ATSPi_Selection.Select_Child;
             Payload_Text_Edit : A11y.Text.Text_Edit_Request;
+            Payload_Bus_Name : Ada.Strings.Unbounded.Unbounded_String;
+            --  The replying connection's unique bus name, the first half of
+            --  every object reference AT-SPI sends as (so).
          when Error_Return =>
             Error_Name : Ada.Strings.Unbounded.Unbounded_String;
          when Signal_Message =>
@@ -421,6 +424,13 @@ package A11y.Linux.DBus_Messages is
    function Decode_Object_Path_Array_Body
      (Payload : Ada.Strings.Unbounded.Unbounded_String;
       Limits  : A11y.Resource_Limits.Resource_Limit_Config;
+      Result  : out A11y.Results.Result)
+      return A11y.Linux.DBus_Codec.String_Vectors.Vector;
+
+   --  The object paths in an a(so) body -- AT-SPI's list of object
+   --  references, each a (bus name, path) struct.
+   function Decode_Reference_Array_Body
+     (Payload : Ada.Strings.Unbounded.Unbounded_String;
       Result  : out A11y.Results.Result)
       return A11y.Linux.DBus_Codec.String_Vectors.Vector;
 

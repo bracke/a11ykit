@@ -65,6 +65,11 @@ package A11y.Linux.ATSPi_Method_Router is
      (Empty_Method_Return,
       DBus_Variant_String,
       DBus_Variant_UInt32,
+      DBus_Variant_Int32,
+      --  A signed integer in a variant, as the Accessible ChildCount property is.
+      DBus_Variant_Reference,
+      --  An object reference (bus name, path) in a variant, as the Accessible
+      --  Parent property is; a reply with no node refers to the desktop root.
       DBus_Property_Map,
       Application_String,
       Application_UInt32,

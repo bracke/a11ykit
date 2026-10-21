@@ -36,7 +36,10 @@ package A11ykit is
       Role_Table_Row,
       Role_Heading,
       Role_Status,
-      Role_Unknown);
+      Role_Unknown,
+      Role_Application);
+   --  Role_Application is the application itself, the parent of its windows:
+   --  the object a screen reader finds an application by.
 
    --  A node's rectangle in framebuffer pixels, top-left origin. Screen readers
    --  use it to place the focus highlight and to route touch/explore gestures.
@@ -53,6 +56,9 @@ package A11ykit is
       Enabled  : Boolean := True;
       Selected : Boolean := False;
       Focused  : Boolean := False;
+      Active   : Boolean := False;
+      --  A window that has the keyboard focus; set by the provider from
+      --  Set_Active, not by the application.
    end record;
 
 end A11ykit;

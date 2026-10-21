@@ -20426,7 +20426,7 @@ begin
             and then Queued.Routed_Kind =
               A11y.Linux.ATSPi_Method_Router.Accessible_Role
             and then Queued.Payload_UInt32 =
-              A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos
+              A11y.Linux.ATSPi_Mappings.Role_Code
                 (A11y.Linux.ATSPi_Mappings.Push_Button)
             and then Context.Last_Serial = 12,
             "Linux AT-SPI bus layer dispatches incoming packets to queued replies");
@@ -20769,7 +20769,7 @@ begin
             and then Reply_Envelope.Reply_Serial = 201
             and then Reply_Envelope.Body_Signature = To_Unbounded_String ("u")
             and then Reply_Role =
-              A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos
+              A11y.Linux.ATSPi_Mappings.Role_Code
                 (A11y.Linux.ATSPi_Mappings.Push_Button)
             and then A11y.Linux.ATSPi_Bus.Pending_Outgoing_Count
               (Serve_Context) = 0
@@ -21058,15 +21058,17 @@ begin
          Reply_Envelope := A11y.Linux.DBus_Messages.Decode_Method_Return
            (Reply_Packet.Bytes, Result);
          declare
+            Path_Result : A11y.Results.Result;
             Child_Path : constant Unbounded_String :=
               A11y.Linux.ATSPi_Objects.Object_Path
-                (Serve_Context.Session, Packet_Child_Node, Result);
+                (Serve_Context.Session, Packet_Child_Node, Path_Result);
             Paths : constant A11y.Linux.DBus_Codec.String_Vectors.Vector :=
-              A11y.Linux.DBus_Messages.Decode_Object_Path_Array_Body
+              A11y.Linux.DBus_Messages.Decode_Reference_Array_Body
                 (Reply_Envelope.Body_Bytes, Result);
          begin
             Check
               (A11y.Results.Succeeded (Result)
+               and then A11y.Results.Succeeded (Path_Result)
                and then Serve_Report.Packet_Classified
                and then Serve_Report.Incoming_Kind =
                  A11y.Linux.DBus_Messages.Method_Call
@@ -21082,7 +21084,7 @@ begin
                  A11y.Linux.DBus_Messages.Method_Return
                and then Reply_Envelope.Reply_Serial = 202
                and then Reply_Envelope.Body_Signature =
-                 To_Unbounded_String ("ao")
+                 To_Unbounded_String ("a(so)")
                and then Natural (Paths.Length) = 1
                and then Paths.First_Element = Child_Path,
                "Linux AT-SPI bus layer serves registered child arrays through serialized packets");
@@ -21765,7 +21767,7 @@ begin
         (Kind        => A11y.Linux.ATSPi_DBus_Boundary.Method_Reply,
          Status      => A11y.Results.Success,
          Routed_Kind => A11y.Linux.ATSPi_Method_Router.Accessible_Role,
-         UInt32      => A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos
+         UInt32      => A11y.Linux.ATSPi_Mappings.Role_Code
            (A11y.Linux.ATSPi_Mappings.Push_Button),
          others      => <>);
       Outgoing : A11y.Linux.DBus_Messages.Outgoing_Message;
@@ -21825,9 +21827,9 @@ begin
            (A11y.Linux.ATSPi_Method_Router.Accessible_Attribute_Set) =
              "a{ss}"
          and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
-           (A11y.Linux.ATSPi_Method_Router.Accessible_Node) = "o"
+           (A11y.Linux.ATSPi_Method_Router.Accessible_Node) = "(so)"
          and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
-           (A11y.Linux.ATSPi_Method_Router.Accessible_Node_Array) = "ao"
+           (A11y.Linux.ATSPi_Method_Router.Accessible_Node_Array) = "a(so)"
          and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
            (A11y.Linux.ATSPi_Method_Router.Accessible_String_Array) = "as"
          and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
@@ -21835,7 +21837,7 @@ begin
          and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
            (A11y.Linux.ATSPi_Method_Router.Component_Rectangle) = "(iiii)"
          and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
-           (A11y.Linux.ATSPi_Method_Router.Component_Node) = "o"
+           (A11y.Linux.ATSPi_Method_Router.Component_Node) = "(so)"
          and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
            (A11y.Linux.ATSPi_Method_Router.Value_Float) = "d"
          and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
@@ -21854,6 +21856,8 @@ begin
            (A11y.Linux.ATSPi_Method_Router.DBus_Variant_String) = "v"
          and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
            (A11y.Linux.ATSPi_Method_Router.DBus_Variant_UInt32) = "v"
+         and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
+           (A11y.Linux.ATSPi_Method_Router.DBus_Variant_Reference) = "v"
          and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
            (A11y.Linux.ATSPi_Method_Router.DBus_Property_Map) = "a{sv}"
          and then A11y.Linux.DBus_Messages.Method_Return_Body_Signature
@@ -21959,7 +21963,7 @@ begin
          Routed_Kind =>
            A11y.Linux.ATSPi_Method_Router.Accessible_Role,
          UInt32      =>
-           A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos
+           A11y.Linux.ATSPi_Mappings.Role_Code
              (A11y.Linux.ATSPi_Mappings.Push_Button),
          others      => <>);
       Outgoing := A11y.Linux.DBus_Messages.Build_Reply
@@ -21970,7 +21974,7 @@ begin
         (A11y.Results.Succeeded (Result)
          and then Length (Payload) = 4
          and then Character'Pos (To_String (Payload) (1)) =
-           A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos
+           A11y.Linux.ATSPi_Mappings.Role_Code
              (A11y.Linux.ATSPi_Mappings.Push_Button),
          "Linux D-Bus message envelope encodes UInt32 method-return payloads");
 
@@ -22105,8 +22109,8 @@ begin
       Check
         (A11y.Results.Succeeded (Result)
          and then Outgoing.Payload_Object_Path = Path
-         and then Length (Payload) = Length (Path) + 5
-         and then To_String (Payload) (5) = '/',
+         and then Length (Payload) = Length (Path) + 13
+         and then To_String (Payload) (13) = '/',
          "Linux D-Bus message envelope encodes object-path method-return payloads");
 
       Boundary_Reply :=
@@ -22122,7 +22126,7 @@ begin
       Check
         (A11y.Results.Succeeded (Result)
          and then Outgoing.Payload_Object_Path = Path
-         and then Length (Payload) = Length (Path) + 5,
+         and then Length (Payload) = Length (Path) + 13,
          "Linux D-Bus message envelope encodes Accessible child object-path payloads");
 
       declare
@@ -22141,9 +22145,9 @@ begin
            (Outgoing, Result);
          Check
            (A11y.Results.Succeeded (Result)
-            and then Length (Payload) = Length (Path) + 9
+            and then Length (Payload) = Length (Path) + 21
             and then Character'Pos (To_String (Payload) (1)) =
-              Length (Path) + 5,
+              Length (Path) + 13,
             "Linux D-Bus message envelope encodes Accessible child object-path arrays");
       end;
 
@@ -22206,14 +22210,13 @@ begin
            (Outgoing, Result);
          Check
            (A11y.Results.Succeeded (Result)
+            --  Two words of a 64-bit mask: Focused (12) and Focusable (11)
+            --  are bits of the low word, 16#1800#.
             and then Length (Payload) = 12
             and then Character'Pos (To_String (Payload) (1)) = 8
-            and then Character'Pos (To_String (Payload) (5)) =
-              A11y.Linux.ATSPi_Mappings.ATSPI_State'Pos
-                (A11y.Linux.ATSPi_Mappings.Focused)
-            and then Character'Pos (To_String (Payload) (9)) =
-              A11y.Linux.ATSPi_Mappings.ATSPI_State'Pos
-                (A11y.Linux.ATSPi_Mappings.Focusable),
+            and then Character'Pos (To_String (Payload) (5)) = 0
+            and then Character'Pos (To_String (Payload) (6)) = 16#18#
+            and then Character'Pos (To_String (Payload) (9)) = 0,
             "Linux D-Bus message envelope encodes state-set method-return payloads");
 
          declare
@@ -24122,7 +24125,7 @@ begin
       Check
         (Routed.Kind = A11y.Linux.ATSPi_Method_Router.Accessible_Role
          and then Routed.UInt32 =
-           A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos
+           A11y.Linux.ATSPi_Mappings.Role_Code
              (A11y.Linux.ATSPi_Mappings.Push_Button),
          "Linux AT-SPI method router dispatches Accessible methods");
 
@@ -24920,9 +24923,14 @@ begin
          and then Reply.Routed_Kind =
            A11y.Linux.ATSPi_Method_Router.DBus_Variant_UInt32
          and then Reply.UInt32 =
-           A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos
+           A11y.Linux.ATSPi_Mappings.Role_Code
              (A11y.Linux.ATSPi_Mappings.Push_Button),
          "Linux D-Bus method boundary serves Accessible Role properties");
+      Check
+        (A11y.Linux.ATSPi_Mappings.Role_Code (A11y.Linux.ATSPi_Mappings.Window) = 69
+         and then A11y.Linux.ATSPi_Mappings.Role_Code (A11y.Linux.ATSPi_Mappings.Application) = 75
+         and then A11y.Linux.ATSPi_Mappings.Role_Code (A11y.Linux.ATSPi_Mappings.Push_Button) = 43,
+         "Linux AT-SPI roles go out with AtspiRole's numbers, not their enumeration positions");
 
       Call.Attribute_2 := To_Unbounded_String ("ChildCount");
       Reply := A11y.Linux.ATSPi_DBus_Boundary.Dispatch_Call
@@ -24930,8 +24938,8 @@ begin
       Check
         (Reply.Kind = A11y.Linux.ATSPi_DBus_Boundary.Method_Reply
          and then Reply.Routed_Kind =
-           A11y.Linux.ATSPi_Method_Router.DBus_Variant_UInt32
-         and then Reply.UInt32 = 3,
+           A11y.Linux.ATSPi_Method_Router.DBus_Variant_Int32
+         and then Reply.Int32 = 3,
          "Linux D-Bus method boundary serves Accessible ChildCount properties");
 
       Call.Method_Name := To_Unbounded_String ("GetAll");

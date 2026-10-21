@@ -104,28 +104,28 @@ package body A11ykit_Compatibility_Tests is
          "compatibility maps legacy rectangles to logical desktop bounds");
       Check
         (A11ykit.Compatibility.To_Semantic_States
-           ((Enabled => True, Selected => True, Focused => True),
+           ((Enabled => True, Selected => True, Focused => True, Active => False),
             Role_List_Item) (A11y.States.Enabled)
          and then A11ykit.Compatibility.To_Semantic_States
-           ((Enabled => True, Selected => True, Focused => True),
+           ((Enabled => True, Selected => True, Focused => True, Active => False),
             Role_List_Item) (A11y.States.Sensitive)
          and then A11ykit.Compatibility.To_Semantic_States
-           ((Enabled => True, Selected => True, Focused => True),
+           ((Enabled => True, Selected => True, Focused => True, Active => False),
             Role_List_Item) (A11y.States.Visible)
          and then A11ykit.Compatibility.To_Semantic_States
-           ((Enabled => True, Selected => True, Focused => True),
+           ((Enabled => True, Selected => True, Focused => True, Active => False),
             Role_List_Item) (A11y.States.Showing)
          and then A11ykit.Compatibility.To_Semantic_States
-           ((Enabled => True, Selected => True, Focused => True),
+           ((Enabled => True, Selected => True, Focused => True, Active => False),
             Role_List_Item) (A11y.States.Selected)
          and then A11ykit.Compatibility.To_Semantic_States
-           ((Enabled => True, Selected => True, Focused => True),
+           ((Enabled => True, Selected => True, Focused => True, Active => False),
             Role_List_Item) (A11y.States.Focused)
          and then A11ykit.Compatibility.To_Semantic_States
-           ((Enabled => True, Selected => True, Focused => True),
+           ((Enabled => True, Selected => True, Focused => True, Active => False),
             Role_List_Item) (A11y.States.Focusable)
          and then A11ykit.Compatibility.To_Semantic_States
-           ((Enabled => True, Selected => True, Focused => True),
+           ((Enabled => True, Selected => True, Focused => True, Active => False),
             Role_List_Item) (A11y.States.Selectable),
          "compatibility maps legacy state flags with derived basic exposure states");
       Check

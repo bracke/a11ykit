@@ -559,44 +559,42 @@ package body A11y.Linux.DBus_Messages is
          return;
       end if;
 
-      for State in A11y.Linux.ATSPi_Mappings.ATSPI_State loop
-         if States (State) then
-            Count := Count + 1;
-            Items.Append
-              (A11y.Linux.ATSPi_Mappings.ATSPI_State'Pos (State));
+      --  AT-SPI's state set is a 64-bit mask, sent as two 32-bit words.
+      declare
+         Low, High : Interfaces.Unsigned_32 := 0;
+      begin
+         for State in A11y.Linux.ATSPi_Mappings.ATSPI_State loop
+            if States (State) then
+               declare
+                  Code : constant Natural := A11y.Linux.ATSPi_Mappings.State_Code (State);
+               begin
+                  if Code < 32 then
+                     Low := Low or Interfaces.Shift_Left (1, Code);
+                  elsif Code < 64 then
+                     High := High or Interfaces.Shift_Left (1, Code - 32);
+                  end if;
+               end;
+            end if;
+         end loop;
+         Items.Append (Natural (Low));
+         Items.Append (Natural (High));
+         Count := 2;
+
+         Encoded := A11y.Linux.DBus_Codec.Make_UInt32_Array
+           (Items, Limits, Result);
+         if A11y.Results.Failed (Result) then
+            return;
+         elsif Encoded.Kind /= A11y.Linux.DBus_Codec.UInt32_Array_Value then
+            Result := (Status => A11y.Results.Internal_Error);
+            return;
          end if;
-      end loop;
 
-      Encoded := A11y.Linux.DBus_Codec.Make_UInt32_Array
-        (Items, Limits, Result);
-      if A11y.Results.Failed (Result) then
-         return;
-      elsif Encoded.Kind /= A11y.Linux.DBus_Codec.UInt32_Array_Value then
-         Result := (Status => A11y.Results.Internal_Error);
-         return;
-      end if;
-
-      if Count > Natural'Last / 4 then
-         Result := (Status => A11y.Results.Resource_Limit);
-         return;
-      end if;
-
-      Byte_Length := Count * 4;
-      if A11y.Resource_Limits.Exceeded
-        (Limits, A11y.Resource_Limits.Native_Array_Size, Byte_Length + 4)
-      then
-         Result := (Status => A11y.Results.Resource_Limit);
-         return;
-      end if;
-
-      Align (Bytes, 4);
-      Append_U32_LE (Bytes, Byte_Length);
-      for State in A11y.Linux.ATSPi_Mappings.ATSPI_State loop
-         if States (State) then
-            Append_U32_LE
-              (Bytes, A11y.Linux.ATSPi_Mappings.ATSPI_State'Pos (State));
-         end if;
-      end loop;
+         Byte_Length := Count * 4;
+         Align (Bytes, 4);
+         Append_U32_LE (Bytes, Byte_Length);
+         Append_U32_LE (Bytes, Natural (Low));
+         Append_U32_LE (Bytes, Natural (High));
+      end;
    end Append_State_Set;
 
    procedure Append_Relation_Set
@@ -784,6 +782,21 @@ package body A11y.Linux.DBus_Messages is
       Append (Bytes, Text);
       Append_Byte (Bytes, 0);
    end Append_DBus_Signature;
+
+   --  An AT-SPI object reference, the struct (so): the owning connection's
+   --  bus name and the object's path, 8-aligned in the body.
+   procedure Append_Reference
+     (Bytes    : in out Unbounded_String;
+      Bus_Name : Unbounded_String;
+      Path     : Unbounded_String) is
+   begin
+      Align (Bytes, 8);
+      Append_DBus_String (Bytes, Bus_Name);
+      Append_DBus_String (Bytes, Path);
+   end Append_Reference;
+
+   Desktop_Bus_Name : constant String := "org.a11y.atspi.Registry";
+   Desktop_Path     : constant String := "/org/a11y/atspi/accessible/root";
 
    procedure Append_Field_Text
      (Fields    : in out Unbounded_String;
@@ -2614,7 +2627,10 @@ package body A11y.Linux.DBus_Messages is
                         return Empty_Envelope (Header.Kind, Result.Status);
                      end if;
                   end;
-               elsif To_String (Envelope.Body_Signature) = "u" then
+               elsif To_String (Envelope.Body_Signature) in "u" | "i" then
+                  --  AT-SPI types child indices as "i" (GetChildAtIndex); an
+                  --  index is read as the unsigned value it must be, so a
+                  --  negative one is simply out of range.
                   declare
                      Body_Text : constant Unbounded_String :=
                        Slice_Unbounded
@@ -2626,6 +2642,7 @@ package body A11y.Linux.DBus_Messages is
                      if A11y.Results.Failed (Result) then
                         return Empty_Envelope (Header.Kind, Result.Status);
                      end if;
+                     Envelope.Body_Signature := To_Unbounded_String ("u");
                   end;
                elsif To_String (Envelope.Body_Signature) = "uu" then
                   if Header.Body_Length /= 8 then
@@ -3301,6 +3318,56 @@ package body A11y.Linux.DBus_Messages is
          return A11y.Linux.DBus_Codec.String_Vectors.Empty_Vector;
    end Decode_Object_Path_Array_Body;
 
+   function Decode_Reference_Array_Body
+     (Payload : Unbounded_String;
+      Result  : out A11y.Results.Result)
+      return A11y.Linux.DBus_Codec.String_Vectors.Vector
+   is
+      Limits : constant A11y.Resource_Limits.Resource_Limit_Config :=
+        A11y.Resource_Limits.Default_Config;
+      Text  : constant String := To_String (Payload);
+      Items : A11y.Linux.DBus_Codec.String_Vectors.Vector;
+      Index : Positive;
+   begin
+      if Text'Length < 8 then
+         Result := (Status => A11y.Results.Invalid_Argument);
+         return Items;
+      end if;
+      Index := Align_Length (4, 8) + 1;
+      if Read_U32_LE (Text, 1) /= Text'Length - (Index - 1) then
+         Result := (Status => A11y.Results.Invalid_Argument);
+         return Items;
+      end if;
+
+      Result := A11y.Results.Ok;
+      while Index <= Text'Last loop
+         Index := Align_Length (Index - 1, 8) + 1;
+         declare
+            Bus_Name : constant Unbounded_String :=
+              Read_DBus_String (Text, Index, Text'Last, Limits, Result);
+            pragma Unreferenced (Bus_Name);
+         begin
+            if A11y.Results.Failed (Result) then
+               return A11y.Linux.DBus_Codec.String_Vectors.Empty_Vector;
+            end if;
+         end;
+         declare
+            Path : constant Unbounded_String :=
+              Read_DBus_String (Text, Index, Text'Last, Limits, Result);
+         begin
+            if A11y.Results.Failed (Result) then
+               return A11y.Linux.DBus_Codec.String_Vectors.Empty_Vector;
+            end if;
+            Items.Append (Path);
+         end;
+      end loop;
+      return Items;
+   exception
+      when others =>
+         Result := (Status => A11y.Results.Internal_Error);
+         return A11y.Linux.DBus_Codec.String_Vectors.Empty_Vector;
+   end Decode_Reference_Array_Body;
+
    function Decode_String_Array_Body
      (Payload : Unbounded_String;
       Result  : out A11y.Results.Result)
@@ -3953,7 +4020,9 @@ package body A11y.Linux.DBus_Messages is
         when A11y.Linux.ATSPi_Method_Router.Empty_Method_Return =>
           "",
         when A11y.Linux.ATSPi_Method_Router.DBus_Variant_String
-           | A11y.Linux.ATSPi_Method_Router.DBus_Variant_UInt32 =>
+           | A11y.Linux.ATSPi_Method_Router.DBus_Variant_UInt32
+           | A11y.Linux.ATSPi_Method_Router.DBus_Variant_Int32
+           | A11y.Linux.ATSPi_Method_Router.DBus_Variant_Reference =>
           "v",
         when A11y.Linux.ATSPi_Method_Router.DBus_Property_Map =>
           "a{sv}",
@@ -3986,7 +4055,7 @@ package body A11y.Linux.DBus_Messages is
         when A11y.Linux.ATSPi_Method_Router.Accessible_Relation_Set =>
           "a(uao)",
         when A11y.Linux.ATSPi_Method_Router.Accessible_Node_Array =>
-          "ao",
+          "a(so)",
         when A11y.Linux.ATSPi_Method_Router.Accessible_String_Array =>
           "as",
         when A11y.Linux.ATSPi_Method_Router.Component_Rectangle =>
@@ -4004,7 +4073,7 @@ package body A11y.Linux.DBus_Messages is
            | A11y.Linux.ATSPi_Method_Router.Accessible_Node
            | A11y.Linux.ATSPi_Method_Router.Selection_Node
            | A11y.Linux.ATSPi_Method_Router.Table_Node =>
-          "o",
+          "(so)",
         when A11y.Linux.ATSPi_Method_Router.Value_Float =>
           "d",
         when A11y.Linux.ATSPi_Method_Router.Value_Set_Request =>
@@ -4082,7 +4151,9 @@ package body A11y.Linux.DBus_Messages is
          if Sig = "s" then
             Ignored := A11y.Linux.DBus_Codec.Make_String
               (To_String (Value), Limits, Result);
-         elsif Sig = "u" then
+         elsif Sig = "u" or else Sig = "i" then
+            --  A count carried as "i" is never negative here, so its bytes
+            --  are those of the unsigned value.
             Ignored := A11y.Linux.DBus_Codec.Make_UInt32
               (UInt32_Value (Value), Result);
          else
@@ -4159,6 +4230,11 @@ package body A11y.Linux.DBus_Messages is
                Align (Bytes, 4);
                Append_U32_LE (Bytes, Message.Payload_UInt32);
             end;
+
+         when A11y.Linux.ATSPi_Method_Router.DBus_Variant_Int32 =>
+            Append_DBus_Signature (Bytes, "i");
+            Align (Bytes, 4);
+            Append_I32_LE (Bytes, Message.Payload_Int32);
 
          when A11y.Linux.ATSPi_Method_Router.DBus_Property_Map =>
             declare
@@ -4252,12 +4328,20 @@ package body A11y.Linux.DBus_Messages is
                if A11y.Results.Failed (Result) then
                   return Null_Unbounded_String;
                end if;
-               Append_DBus_String (Bytes, Message.Payload_Object_Path);
+               Append_Reference (Bytes, Message.Payload_Bus_Name, Message.Payload_Object_Path);
             end;
+
+         when A11y.Linux.ATSPi_Method_Router.DBus_Variant_Reference =>
+            Append_DBus_Signature (Bytes, "(so)");
+            if Length (Message.Payload_Object_Path) = 0 then
+               Append_Reference
+                 (Bytes, To_Unbounded_String (Desktop_Bus_Name), To_Unbounded_String (Desktop_Path));
+            else
+               Append_Reference (Bytes, Message.Payload_Bus_Name, Message.Payload_Object_Path);
+            end if;
 
          when A11y.Linux.ATSPi_Method_Router.Accessible_Node_Array =>
             declare
-               Path_Bytes : Unbounded_String := Null_Unbounded_String;
                Paths : A11y.Linux.DBus_Codec.String_Vectors.Vector;
                Encoded : A11y.Linux.DBus_Codec.DBus_Value;
             begin
@@ -4292,21 +4376,29 @@ package body A11y.Linux.DBus_Messages is
                   return Null_Unbounded_String;
                end if;
 
-               for Path of Paths loop
-                  Append_DBus_String (Path_Bytes, Path);
+               --  a(so): the length, then 8-aligned (bus, path) structs. The
+               --  length counts the elements, not the padding before them.
+               Align (Bytes, 4);
+               declare
+                  Length_At : constant Positive := Length (Bytes) + 1;
+                  First     : Natural;
+                  Size      : Unbounded_String;
+               begin
+                  Append_U32_LE (Bytes, 0);
+                  Align (Bytes, 8);
+                  First := Length (Bytes);
+                  for Path of Paths loop
+                     Append_Reference (Bytes, Message.Payload_Bus_Name, Path);
+                  end loop;
                   if A11y.Resource_Limits.Exceeded
-                    (Limits,
-                     A11y.Resource_Limits.Native_Array_Size,
-                     Length (Path_Bytes))
+                    (Limits, A11y.Resource_Limits.Native_Array_Size, Length (Bytes) - First)
                   then
                      Result := (Status => A11y.Results.Resource_Limit);
                      return Null_Unbounded_String;
                   end if;
-               end loop;
-
-               Align (Bytes, 4);
-               Append_U32_LE (Bytes, Length (Path_Bytes));
-               Append (Bytes, Path_Bytes);
+                  Append_U32_LE (Size, Length (Bytes) - First);
+                  Replace_Slice (Bytes, Length_At, Length_At + 3, To_String (Size));
+               end;
             end;
 
          when A11y.Linux.ATSPi_Method_Router.Accessible_String_Array =>
@@ -4588,6 +4680,9 @@ package body A11y.Linux.DBus_Messages is
                   | A11y.Linux.ATSPi_Method_Router.Selection_Node
                   | A11y.Linux.ATSPi_Method_Router.Table_Node)
               or else
+                (Reply.Routed_Kind = A11y.Linux.ATSPi_Method_Router.DBus_Variant_Reference
+                 and then A11y.Node_Ids.Is_Valid (Reply.Node))
+              or else
                 (Reply.Routed_Kind =
                    A11y.Linux.ATSPi_Method_Router.Selection_Request
                  and then A11y.Node_Ids.Is_Valid (Reply.Node))
@@ -4631,7 +4726,8 @@ package body A11y.Linux.DBus_Messages is
                Payload_Action => Reply.Requested_Action,
                Payload_Value => Reply.Requested_Value,
                Payload_Selection_Request => Reply.Selection_Request,
-               Payload_Text_Edit => Reply.Requested_Edit);
+               Payload_Text_Edit => Reply.Requested_Edit,
+               Payload_Bus_Name => Null_Unbounded_String);
          when A11y.Linux.ATSPi_DBus_Boundary.Error_Reply =>
             Ignored := A11y.Linux.DBus_Codec.Make_String
               (To_String (Reply.Error_Name), Limits, Result);
