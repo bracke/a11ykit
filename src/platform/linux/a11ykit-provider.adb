@@ -310,6 +310,17 @@ package body A11ykit.Provider is
    end Service;
 
 
+   --  The node the application marked active, or 0.
+   function Active_Window (Tree : A11ykit.Tree.Accessibility_Tree) return Natural is
+   begin
+      for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
+         if Tree.Nodes (Index).Node_State.Active then
+            return Index;
+         end if;
+      end loop;
+      return 0;
+   end Active_Window;
+
    --  The tree under an application node, the root AT-SPI expects: the
    --  application is node 1, its children the tree's top-level nodes.
    function Under_Application
@@ -333,8 +344,12 @@ package body A11ykit.Provider is
       for Item of Tree.Nodes loop
          Result.Nodes.Append ((Item with delta Parent => Item.Parent + 1));
       end loop;
-      --  The window (the tree's root, now node 2) is active while focused.
-      Result.Nodes.Reference (2).Node_State.Active := Window_Active;
+      --  An application with several windows marks the active one itself;
+      --  otherwise the window (the tree's root, now node 2) is active while
+      --  focused.
+      if Active_Window (Tree) = 0 then
+         Result.Nodes.Reference (2).Node_State.Active := Window_Active;
+      end if;
       Result.Focused := (if Tree.Focused = 0 then 0 else Tree.Focused + 1);
       return Result;
    exception
@@ -472,13 +487,16 @@ package body A11ykit.Provider is
       end if;
       --  Answer from a tree whose window carries the new active state.
       Publish_Under_Application (Under_Application (Last_Tree));
-      --  The window is the application node's first child (Under_Application).
       Last_Delivered := Last_Delivered + 1;
       A11y.Linux.ATSPi_Backend_Sessions.Queue_Event_Signal
         (Session,
          (Sequence  => Last_Delivered,
           Timestamp => Ada.Calendar.Clock,
-          Source    => A11y.Node_Ids.From_Natural (2),
+          --  The window the application marked active, else the first
+          --  (node 2, under the application node).
+          Source    =>
+            A11y.Node_Ids.From_Natural
+              ((if Active_Window (Last_Tree) = 0 then 2 else Active_Window (Last_Tree) + 1)),
           Kind      => (if Active then A11y.Events.Window_Activated else A11y.Events.Window_Deactivated),
           Revision  => A11y.Initial_Revision),
          Result);
