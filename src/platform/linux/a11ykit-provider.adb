@@ -13,6 +13,7 @@ with A11y.Events;
 with A11y.Linux.ATSPi_Backend_Sessions;
 with A11y.Linux.ATSPi_Startup;
 with A11y.Linux.ATSPi_Method_Router;
+with A11y.Linux.ATSPi_Requests;
 with A11y.Linux.ATSPi_Object_Registry;
 with A11y.Linux.DBus_Auth;
 with A11y.Node_Ids;
@@ -489,6 +490,34 @@ package body A11ykit.Provider is
       when others =>
          null;
    end Set_Active;
+
+   function Next_Request (Item : out Request) return Boolean is
+      Raw : A11y.Linux.ATSPi_Requests.Request;
+   begin
+      Item := (others => <>);
+      while A11y.Linux.ATSPi_Requests.Pop (Raw) loop
+         declare
+            --  Published under the application node, so one index on.
+            Index : constant Integer := A11y.Node_Ids.To_Natural (Raw.Node) - 1;
+         begin
+            if Index in Last_Tree.Nodes.First_Index .. Last_Tree.Nodes.Last_Index then
+               Item :=
+                 (Kind   =>
+                    (case Raw.Kind is
+                       when A11y.Linux.ATSPi_Requests.Activate => Activate_Request,
+                       when A11y.Linux.ATSPi_Requests.Focus    => Focus_Request),
+                  Node   => Index,
+                  Bounds => Last_Tree.Nodes (Index).Bounds);
+               Trace ("screen reader asks to " & Item.Kind'Image & " node" & Index'Image);
+               return True;
+            end if;
+         end;
+      end loop;
+      return False;
+   exception
+      when others =>
+         return False;
+   end Next_Request;
 
    function Last_Publish_Status return A11y.Results.Status_Code is
      (A11ykit.Provider_Runtime.Last_Publish_Status);

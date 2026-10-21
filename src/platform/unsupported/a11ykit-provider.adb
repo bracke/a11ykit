@@ -33,6 +33,13 @@ package body A11ykit.Provider is
    --  This host's window system tells its screen reader about activation.
    procedure Set_Active (Active : Boolean) is null;
 
+   --  Requests from this host's screen reader are not routed back yet.
+   function Next_Request (Item : out Request) return Boolean is
+   begin
+      Item := (others => <>);
+      return False;
+   end Next_Request;
+
    function Last_Publish_Status return A11y.Results.Status_Code is
      (A11ykit.Provider_Runtime.Last_Publish_Status);
 

@@ -1,8 +1,14 @@
 with Ada.Strings.Unbounded;
 with Ada.Strings.Wide_Wide_Unbounded;
 
+with A11y.Capabilities;
+with A11y.Linux.ATSPi_Requests;
+with A11y.Semantic_Snapshots;
+with A11y.States;
+
 package body A11y.Linux.ATSPi_Method_Router is
    use Ada.Strings.Unbounded;
+   use type A11y.Properties.Property_Status;
    use Ada.Strings.Wide_Wide_Unbounded;
    use type A11y.Linux.ATSPi_Objects.ATSPI_Interface;
 
@@ -72,6 +78,64 @@ package body A11y.Linux.ATSPi_Method_Router is
          Result := (Status => A11y.Results.Internal_Error);
          return Null_Unbounded_String;
    end Encode_UTF8;
+
+   --  The Component and Action snapshots describe one object; answer for the
+   --  object the call names, from its metadata in the published tree.
+   function Named_Node
+     (Session : A11y.Native_Identity.Backend_Session_Id;
+      Path    : String)
+      return A11y.Node_Ids.Node_Id
+   is
+      Result : A11y.Results.Result;
+      Node   : constant A11y.Node_Ids.Node_Id :=
+        A11y.Linux.ATSPi_Objects.Node_From_Object_Path (Path, Session, Result);
+   begin
+      return (if A11y.Results.Failed (Result) then A11y.Node_Ids.No_Node else Node);
+   end Named_Node;
+
+   function Component_For
+     (Snapshots : Snapshot_Bundle;
+      Node      : A11y.Node_Ids.Node_Id)
+      return A11y.Linux.ATSPi_Component.Component_Snapshot
+   is
+      Meta   : constant A11y.Semantic_Snapshots.Node_Metadata :=
+        A11y.Semantic_Snapshots.Metadata (Snapshots.Accessible.Nodes, Node);
+      Result : A11y.Linux.ATSPi_Component.Component_Snapshot := Snapshots.Component;
+   begin
+      if not A11y.Node_Ids.Is_Valid (Node) or else not Meta.Present then
+         return Result;
+      end if;
+      Result.Id := Node;
+      if Meta.Bounds.Status = A11y.Properties.Present then
+         Result.Bounds := Meta.Bounds.Value;
+      end if;
+      Result.Focus_Request_Supported := Meta.States (A11y.States.Focusable);
+      Result.Focus_Request_Status := A11y.Results.Success;
+      return Result;
+   end Component_For;
+
+   function Action_For
+     (Snapshots : Snapshot_Bundle;
+      Node      : A11y.Node_Ids.Node_Id)
+      return A11y.Linux.ATSPi_Action.Action_Snapshot
+   is
+      Meta   : constant A11y.Semantic_Snapshots.Node_Metadata :=
+        A11y.Semantic_Snapshots.Metadata (Snapshots.Accessible.Nodes, Node);
+      Result : A11y.Linux.ATSPi_Action.Action_Snapshot := Snapshots.Action;
+   begin
+      if not A11y.Node_Ids.Is_Valid (Node) or else not Meta.Present then
+         return Result;
+      end if;
+      Result.Id := Node;
+      Result.States := Meta.States;
+      --  Anything the application made actionable, or can focus (a list
+      --  row, a text field), can be activated as a click would.
+      Result.Supported :=
+        (if Meta.Capabilities (A11y.Capabilities.Action) or else Meta.States (A11y.States.Focusable)
+         then A11y.Actions.With_Action (A11y.Actions.Empty_Action_Set, A11y.Actions.Activate)
+         else A11y.Actions.Empty_Action_Set);
+      return Result;
+   end Action_For;
 
    function Dispatch
      (Request   : Method_Request;
@@ -186,7 +250,7 @@ package body A11y.Linux.ATSPi_Method_Router is
                     Path,
                     Method,
                     Request.Point,
-                    Snapshots.Component,
+                    Component_For (Snapshots, Named_Node (Request.Session, Path)),
                     Snapshots.Limits);
             begin
                case Reply.Kind is
@@ -196,6 +260,11 @@ package body A11y.Linux.ATSPi_Method_Router is
                              Bounds => Reply.Bounds,
                              others => <>);
                   when A11y.Linux.ATSPi_Component.Boolean_Reply =>
+                     if Method = "GrabFocus" and then Reply.Boolean_Item then
+                        A11y.Linux.ATSPi_Requests.Push
+                          ((Kind => A11y.Linux.ATSPi_Requests.Focus,
+                            Node => Named_Node (Request.Session, Path)));
+                     end if;
                      return (Kind => Component_Boolean,
                              Status => Reply.Status,
                              Boolean_Item => Reply.Boolean_Item,
@@ -218,7 +287,7 @@ package body A11y.Linux.ATSPi_Method_Router is
                     Path,
                     Method,
                     Request.Index,
-                    Snapshots.Action,
+                    Action_For (Snapshots, Named_Node (Request.Session, Path)),
                     Snapshots.Limits);
             begin
                case Reply.Kind is
@@ -233,6 +302,11 @@ package body A11y.Linux.ATSPi_Method_Router is
                              Text => Reply.Text,
                              others => <>);
                   when A11y.Linux.ATSPi_Action.Invocation_Reply =>
+                     if A11y.Results.Succeeded ((Status => Reply.Status)) then
+                        A11y.Linux.ATSPi_Requests.Push
+                          ((Kind => A11y.Linux.ATSPi_Requests.Activate,
+                            Node => Named_Node (Request.Session, Path)));
+                     end if;
                      return (Kind => Action_Invocation,
                              Status => Reply.Status,
                              Boolean_Item => A11y.Results.Succeeded

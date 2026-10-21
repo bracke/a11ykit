@@ -16,6 +16,7 @@ with A11y.Linux.ATSPi_Document;
 with A11y.Linux.ATSPi_DBus_Boundary;
 with A11y.Linux.DBus_Auth;
 with A11y.Linux.DBus_Codec;
+with A11y.Linux.ATSPi_Requests;
 with A11y.Linux.DBus_Messages;
 with A11y.Linux.ATSPi_Image;
 with A11y.Linux.ATSPi_Live_Regions;
@@ -23574,6 +23575,30 @@ begin
             and then Round.Member_Name = Envelope.Member_Name
             and then Round.Body_Signature = Envelope.Body_Signature,
             "Linux AT-SPI event signals encode a header the decoder reads back");
+      end;
+
+      --  What a screen reader asks is handed to the application in order.
+      declare
+         use type A11y.Linux.ATSPi_Requests.Request_Kind;
+         Taken  : A11y.Linux.ATSPi_Requests.Request;
+         Spare  : A11y.Linux.ATSPi_Requests.Request;
+         First  : Boolean;
+         Second : Boolean;
+      begin
+         while A11y.Linux.ATSPi_Requests.Pop (Spare) loop
+            null;
+         end loop;
+         A11y.Linux.ATSPi_Requests.Push ((A11y.Linux.ATSPi_Requests.Activate, A11y.Node_Ids.From_Natural (7)));
+         A11y.Linux.ATSPi_Requests.Push ((A11y.Linux.ATSPi_Requests.Focus, A11y.Node_Ids.From_Natural (9)));
+         First := A11y.Linux.ATSPi_Requests.Pop (Taken)
+           and then Taken.Kind = A11y.Linux.ATSPi_Requests.Activate
+           and then Taken.Node = A11y.Node_Ids.From_Natural (7);
+         Second := A11y.Linux.ATSPi_Requests.Pop (Taken)
+           and then Taken.Kind = A11y.Linux.ATSPi_Requests.Focus
+           and then Taken.Node = A11y.Node_Ids.From_Natural (9);
+         Check
+           (First and then Second and then not A11y.Linux.ATSPi_Requests.Pop (Taken),
+            "Linux AT-SPI screen-reader requests reach the application in order");
       end;
    end;
 

@@ -1,6 +1,8 @@
 with Ada.Strings.Fixed;
 
 with A11y.Capabilities;
+with A11y.States;
+with A11y.Semantic_Snapshots;
 with A11y.Linux.ATSPi_Objects;
 with A11y.Resource_Limits;
 with A11y.Roles;
@@ -276,6 +278,9 @@ package body A11y.Linux.ATSPi_DBus_Boundary is
       Application_Interface : constant String :=
         A11y.Linux.ATSPi_Objects.Interface_Name
           (A11y.Linux.ATSPi_Objects.Application);
+      Action_Interface : constant String :=
+        A11y.Linux.ATSPi_Objects.Interface_Name
+          (A11y.Linux.ATSPi_Objects.Action);
 
       function Variant_String
         (Text : Unbounded_String)
@@ -444,6 +449,30 @@ package body A11y.Linux.ATSPi_DBus_Boundary is
          else
             return Error (A11y.Results.Unsupported_Property);
          end if;
+      elsif Requested_Interface = Action_Interface and then Property_Name = "NActions" then
+         --  libatspi counts an object's actions from this property, and a
+         --  screen reader offers to activate only what has one. The rule is
+         --  the router's: actionable or focusable objects have "activate".
+         declare
+            Result : A11y.Results.Result;
+            Node   : constant A11y.Node_Ids.Node_Id :=
+              A11y.Linux.ATSPi_Objects.Node_From_Object_Path
+                (To_String (Call.Object_Path), Call.Session, Result);
+            Meta   : constant A11y.Semantic_Snapshots.Node_Metadata :=
+              A11y.Semantic_Snapshots.Metadata (Snapshots.Accessible.Nodes, Node);
+         begin
+            if A11y.Results.Failed (Result) or else not Meta.Present then
+               return Error (A11y.Results.Node_Unavailable);
+            end if;
+            return Method
+              ((Kind   => A11y.Linux.ATSPi_Method_Router.DBus_Variant_Int32,
+                Status => A11y.Results.Success,
+                Int32  =>
+                  (if Meta.Capabilities (A11y.Capabilities.Action)
+                     or else Meta.States (A11y.States.Focusable)
+                   then 1 else 0),
+                others => <>));
+         end;
       else
          return Error (A11y.Results.Unsupported_Capability);
       end if;

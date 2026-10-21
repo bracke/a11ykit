@@ -53,6 +53,22 @@ package A11ykit.Provider is
    --  application calls this when its window's focus changes.
    procedure Set_Active (Active : Boolean);
 
+   --  Something the screen reader asked the application to do to a node of
+   --  the last published tree: activate it (as a click would) or move the
+   --  keyboard focus to it. Node is the node's index in that tree and Bounds
+   --  its rectangle, so the application can act on it as on a click there.
+   type Request_Kind is (Activate_Request, Focus_Request);
+
+   type Request is record
+      Kind   : Request_Kind := Activate_Request;
+      Node   : Natural := 0;
+      Bounds : A11ykit.Rectangle;
+   end record;
+
+   --  The oldest request not yet taken; an application calls this from its
+   --  event loop until it answers False.
+   function Next_Request (Item : out Request) return Boolean;
+
    --  Result of the most recent compatibility publication attempt. This is
    --  semantic/backend validation state, not proof that a native host provider
    --  is registered; Available remains the native-registration truth.
