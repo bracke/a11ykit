@@ -112,6 +112,14 @@ package body A11ykit_Legacy_Provider_Tests is
         (A11ykit.Provider.Last_Publish_Status = A11y.Results.Success
          and then A11ykit.Provider.Last_Published_Event_Count = 8 + Root_Events,
          "legacy publication attaches parents before earlier children and maps selected buttons to pressed state");
+
+      --  Natively registered, publishing an unchanged tree announces nothing:
+      --  a redraw that changed no structure and no focus is not news.
+      A11ykit.Provider.Publish (Reading_Order_Tree);
+      Check
+        (not A11ykit.Provider.Available
+         or else A11ykit.Provider.Last_Published_Event_Count = 0,
+         "native publication of an unchanged tree announces no events");
       declare
          Empty : Accessibility_Tree;
       begin

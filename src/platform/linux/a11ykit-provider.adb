@@ -25,6 +25,7 @@ with Hostkit.Process;
 package body A11ykit.Provider is
    use Ada.Strings.Unbounded;
    use type A11y.Event_Sequence;
+   use type A11y.Events.Event_Kind;
    use type A11y.Results.Status_Code;
    use type A11y.Linux.ATSPi_Startup.Pump_Bounded_Stop_Reason;
 
@@ -44,6 +45,26 @@ package body A11ykit.Provider is
    --  published, so a focus change can be published without the application.
    Window_Active : Boolean := False;
    Last_Tree     : A11ykit.Tree.Accessibility_Tree;
+
+   --  What the screen reader last heard: the tree's structure (each node's
+   --  role, name and parent) and which node had the focus.
+   Last_Structure : Unbounded_String;
+   Last_Focus     : Unbounded_String;
+
+   function Structure_Of (Tree : A11ykit.Tree.Accessibility_Tree) return Unbounded_String is
+      Result : Unbounded_String;
+   begin
+      for Item of Tree.Nodes loop
+         Append (Result, A11ykit.Role'Image (Item.Node_Role) & ASCII.NUL & To_String (Item.Name)
+                 & ASCII.NUL & Natural'Image (Item.Parent) & ASCII.LF);
+      end loop;
+      return Result;
+   end Structure_Of;
+
+   function Focus_Of (Tree : A11ykit.Tree.Accessibility_Tree) return Unbounded_String is
+     (if Tree.Focused = 0 then Null_Unbounded_String
+      else To_Unbounded_String
+             (Natural'Image (Tree.Focused) & ASCII.NUL & To_String (Tree.Nodes (Tree.Focused).Name)));
 
    --  The sequence number given to the last event handed to the backend.
    Last_Delivered : A11y.Event_Sequence := A11y.No_Event;
@@ -155,8 +176,13 @@ package body A11ykit.Provider is
          Result := (Status => A11y.Results.Internal_Error);
    end Build_Snapshots;
 
+   --  Which of a publication's events go out: a changed tree announces all
+   --  of them; an unchanged one only a focus that moved, or nothing.
+   type Event_Filter is (All_Events, Focus_Only, No_Events);
+
    procedure Publish_Queued_Events
      (Semantic  : in out A11y.Sessions.Semantic_Session;
+      Which     : Event_Filter;
       Delivered : out Natural;
       Result    : out A11y.Results.Result)
    is
@@ -176,15 +202,21 @@ package body A11ykit.Provider is
             return;
          end if;
 
-         --  Each publication's semantic session numbers its events from the
-         --  start, while the backend admits only ever-later sequences; number
-         --  them afresh from one counter that lives as long as the provider.
-         Last_Delivered := Last_Delivered + 1;
-         A11y.Linux.ATSPi_Backend_Sessions.Queue_Event_Signal
-           (Session, (Event with delta Sequence => Last_Delivered), Queue_Result);
-         if A11y.Results.Failed (Queue_Result) then
-            Result := Queue_Result;
-            return;
+         if Which = All_Events
+           or else (Which = Focus_Only and then Event.Kind = A11y.Events.Focus_Changed)
+         then
+            --  Each publication's semantic session numbers its events from
+            --  the start, while the backend admits only ever-later sequences;
+            --  number them afresh from one counter that lives as long as the
+            --  provider.
+            Last_Delivered := Last_Delivered + 1;
+            A11y.Linux.ATSPi_Backend_Sessions.Queue_Event_Signal
+              (Session, (Event with delta Sequence => Last_Delivered), Queue_Result);
+            if A11y.Results.Failed (Queue_Result) then
+               Result := Queue_Result;
+               return;
+            end if;
+            Delivered := Delivered + 1;
          end if;
 
          A11y.Sessions.Acknowledge_Event
@@ -193,7 +225,6 @@ package body A11ykit.Provider is
             Result := Ack_Result;
             return;
          end if;
-         Delivered := Delivered + 1;
       end loop;
       Result := A11y.Results.Ok;
    exception
@@ -381,9 +412,21 @@ package body A11ykit.Provider is
          end;
       end loop;
 
-      --  Every publication announces its tree's events: the screen reader
-      --  learns of a change only from them. The registration itself is kept.
-      Publish_Queued_Events (Semantic.all, Delivered, Result);
+      --  A changed tree is announced in full; an unchanged one only by a moved
+      --  focus -- repeating it on every redraw would have the screen reader
+      --  say the focused item again each time the pointer moves.
+      declare
+         Structure : constant Unbounded_String := Structure_Of (Tree);
+         Focus     : constant Unbounded_String := Focus_Of (Tree);
+         Which     : constant Event_Filter :=
+           (if First or else Structure /= Last_Structure then All_Events
+            elsif Focus /= Last_Focus then Focus_Only
+            else No_Events);
+      begin
+         Publish_Queued_Events (Semantic.all, Which, Delivered, Result);
+         Last_Structure := Structure;
+         Last_Focus := Focus;
+      end;
       if A11y.Results.Failed (Result) then
          Trace ("events not delivered (" & Result.Status'Image & ", " & Delivered'Image
                 & " sent); registration ended");
