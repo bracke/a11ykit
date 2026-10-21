@@ -18,7 +18,10 @@ package A11y.Resource_Limits is
       Shutdown_Duration_MS,
       Diagnostic_Trace_Size,
       Event_Coalescing_Window,
-      Virtual_Node_Realization);
+      Virtual_Node_Realization,
+      Native_Message_Size);
+   --  Native_Message_Size bounds one whole native message in bytes; an array
+   --  inside it is bounded by Native_Array_Size elements.
 
    type Limit_Value is new Natural;
 
@@ -69,7 +72,9 @@ package A11y.Resource_Limits is
            when Event_Coalescing_Window =>
              Metadata'Result.Default_Value = 1,
            when Virtual_Node_Realization =>
-             Metadata'Result.Default_Value = 4_096);
+             Metadata'Result.Default_Value = 4_096,
+           when Native_Message_Size =>
+             Metadata'Result.Default_Value = 134_217_728);
 
    function Stable_Name (Kind : Limit_Kind) return String;
 

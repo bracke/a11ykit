@@ -20215,7 +20215,7 @@ begin
       begin
          A11y.Resource_Limits.Set_Limit
            (Frame_Limits,
-            A11y.Resource_Limits.Native_Array_Size,
+            A11y.Resource_Limits.Native_Message_Size,
             8,
             Result);
          A11y.Linux.ATSPi_Bus.Send_Next_Transport_Frame
@@ -22150,6 +22150,26 @@ begin
             and then Character'Pos (To_String (Payload) (1)) =
               Length (Path) + 13,
             "Linux D-Bus message envelope encodes Accessible child object-path arrays");
+
+         --  A reply larger than one array's element bound still goes out: a
+         --  folder of a few hundred files lists that many children.
+         Nodes.Clear;
+         for Copy in 1 .. 200 loop
+            Nodes.Append (Node);
+         end loop;
+         Boundary_Reply :=
+           (Kind        => A11y.Linux.ATSPi_DBus_Boundary.Method_Reply,
+            Status      => A11y.Results.Success,
+            Routed_Kind => A11y.Linux.ATSPi_Method_Router.Accessible_Node_Array,
+            Nodes       => Nodes,
+            others      => <>);
+         Outgoing := A11y.Linux.DBus_Messages.Build_Reply
+           (Incoming, Boundary_Reply, 136, Result);
+         Payload := A11y.Linux.DBus_Messages.Method_Return_Payload_Bytes
+           (Outgoing, Result);
+         Check
+           (A11y.Results.Succeeded (Result) and then Length (Payload) > 4_096,
+            "Linux D-Bus message envelope encodes child arrays larger than 4 KiB");
       end;
 
       Boundary_Reply :=
@@ -23343,7 +23363,7 @@ begin
       begin
          A11y.Resource_Limits.Set_Limit
            (Byte_Limits,
-            A11y.Resource_Limits.Native_Array_Size,
+            A11y.Resource_Limits.Native_Message_Size,
             8,
             Result);
          Byte_Frame := A11y.Linux.DBus_Messages.Build_Transport_Frame

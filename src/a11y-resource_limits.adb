@@ -27,6 +27,8 @@ package body A11y.Resource_Limits is
      "shutdown-duration-ms";
    Diagnostic_Trace_Size_Name        : aliased constant String :=
      "diagnostic-trace-size";
+   Native_Message_Size_Name          : aliased constant String :=
+     "native-message-size";
    Event_Coalescing_Window_Name      : aliased constant String :=
      "event-coalescing-window";
    Virtual_Node_Realization_Name     : aliased constant String :=
@@ -47,7 +49,9 @@ package body A11y.Resource_Limits is
       Shutdown_Duration_MS          => 5_000,
       Diagnostic_Trace_Size         => 1_024,
       Event_Coalescing_Window       => 1,
-      Virtual_Node_Realization      => 4_096];
+      Virtual_Node_Realization      => 4_096,
+      --  The D-Bus specification's maximum message length.
+      Native_Message_Size           => 134_217_728];
 
    function Metadata (Kind : Limit_Kind) return Limit_Metadata is
      (case Kind is
@@ -95,7 +99,10 @@ package body A11y.Resource_Limits is
            Default_Value => Defaults (Event_Coalescing_Window)),
         when Virtual_Node_Realization =>
           (Stable_Name => Virtual_Node_Realization_Name'Access,
-           Default_Value => Defaults (Virtual_Node_Realization)));
+           Default_Value => Defaults (Virtual_Node_Realization)),
+        when Native_Message_Size =>
+          (Stable_Name => Native_Message_Size_Name'Access,
+           Default_Value => Defaults (Native_Message_Size)));
 
    function Stable_Name (Kind : Limit_Kind) return String is
      (Metadata (Kind).Stable_Name.all);

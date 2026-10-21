@@ -874,6 +874,45 @@ package body A11y.Linux.ATSPi_Bus is
          return;
       end if;
 
+      --  Cache.GetItems is not an object's method: it asks for every object
+      --  at once, on the cache path, and is answered from the whole tree.
+      declare
+         Envelope : constant A11y.Linux.DBus_Messages.Transport_Envelope :=
+           A11y.Linux.DBus_Messages.Decode_Transport_Envelope (Bytes, Limits, Result);
+      begin
+         if A11y.Results.Succeeded (Result)
+           and then To_String (Envelope.Interface_Name) = "org.a11y.atspi.Cache"
+           and then To_String (Envelope.Member_Name) = "GetItems"
+         then
+            declare
+               Serial  : constant Natural := Next_Outgoing_Serial (Context, Result);
+               Message : A11y.Linux.DBus_Messages.Outgoing_Message (A11y.Linux.DBus_Messages.Method_Return);
+            begin
+               if A11y.Results.Failed (Result) then
+                  Report.Status := Result.Status;
+                  return;
+               end if;
+               Message.Serial := Serial;
+               Message.Reply_Serial := Envelope.Serial;
+               Message.Object_Path := Envelope.Sender_Name;
+               Message.Routed_Kind := A11y.Linux.ATSPi_Method_Router.Cache_Items;
+               Message.Payload_Text :=
+                 A11y.Linux.DBus_Messages.Cache_Items_Body (Context.Unique_Name, Context.Session, Snapshots);
+               Message.Payload_Bus_Name := Context.Unique_Name;
+               A11y.Linux.DBus_Messages.Enqueue (Context.Outgoing, Message, Result);
+               if A11y.Results.Failed (Result) then
+                  Report.Status := Result.Status;
+                  return;
+               end if;
+               Report.Reply_Queued := True;
+               Send_Next_Transport_Packet (Context, Limits, Packet, Result);
+               Report.Status := Result.Status;
+               Report.Reply_Serialized := A11y.Results.Succeeded (Result);
+               return;
+            end;
+         end if;
+      end;
+
       Incoming := A11y.Linux.DBus_Messages.Decode_Incoming_Call
         (Context.Session, Bytes, Limits, Result);
       if A11y.Results.Failed (Result) then

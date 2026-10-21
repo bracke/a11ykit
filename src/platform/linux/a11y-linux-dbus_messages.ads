@@ -429,6 +429,17 @@ package A11y.Linux.DBus_Messages is
 
    --  The object paths in an a(so) body -- AT-SPI's list of object
    --  references, each a (bus name, path) struct.
+   --  The body of a Cache.GetItems reply, a((so)(so)(so)iiassusau): for
+   --  every object of the published tree, its reference, its application's,
+   --  its parent's, its index among its parent's children, its child count,
+   --  its interfaces, name, role, description and state set -- what a
+   --  screen reader otherwise asks each object for one call at a time.
+   function Cache_Items_Body
+     (Bus_Name  : Ada.Strings.Unbounded.Unbounded_String;
+      Session   : A11y.Native_Identity.Backend_Session_Id;
+      Snapshots : A11y.Linux.ATSPi_Method_Router.Snapshot_Bundle)
+      return Ada.Strings.Unbounded.Unbounded_String;
+
    function Decode_Reference_Array_Body
      (Payload : Ada.Strings.Unbounded.Unbounded_String;
       Result  : out A11y.Results.Result)

@@ -68,6 +68,9 @@ package A11y.Linux.ATSPi_Method_Router is
       DBus_Variant_Int32,
       --  A signed integer in a variant, as the Accessible ChildCount property is.
       DBus_Variant_Reference,
+      Cache_Items,
+      --  Cache.GetItems: every object at once, its body encoded in full by
+      --  DBus_Messages.Cache_Items_Body and carried as Text.
       --  An object reference (bus name, path) in a variant, as the Accessible
       --  Parent property is; a reply with no node refers to the desktop root.
       DBus_Property_Map,

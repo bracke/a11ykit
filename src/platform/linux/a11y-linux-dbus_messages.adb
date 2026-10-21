@@ -2,7 +2,9 @@ with Ada.Strings.Fixed;
 with Ada.Unchecked_Conversion;
 with Interfaces;
 
+with A11y.Linux.ATSPi_Cache;
 with A11y.Linux.ATSPi_Objects;
+with A11y.Semantic_Snapshots;
 with A11y.Tables;
 
 package body A11y.Linux.DBus_Messages is
@@ -796,6 +798,7 @@ package body A11y.Linux.DBus_Messages is
    end Append_Reference;
 
    Desktop_Bus_Name : constant String := "org.a11y.atspi.Registry";
+
    Desktop_Path     : constant String := "/org/a11y/atspi/accessible/root";
 
    procedure Append_Field_Text
@@ -1995,9 +1998,13 @@ package body A11y.Linux.DBus_Messages is
 
       Add_Checked (Total, Length (Header), Result);
       Add_Checked (Total, Length (Payload), Result);
+      --  A whole message is bounded by D-Bus's own maximum, not by the
+      --  element count allowed in one array: a reply listing a large
+      --  folder's children, or every object for Cache.GetItems, is
+      --  routinely more than 4 KiB.
       if A11y.Results.Failed (Result)
         or else A11y.Resource_Limits.Exceeded
-          (Limits, A11y.Resource_Limits.Native_Array_Size, Total)
+          (Limits, A11y.Resource_Limits.Native_Message_Size, Total)
       then
          Result := (Status => A11y.Results.Resource_Limit);
          return Empty_Transport_Frame (Envelope.Kind);
@@ -2051,7 +2058,7 @@ package body A11y.Linux.DBus_Messages is
       Add_Checked (Total, Length (Frame.Body_Bytes), Result);
       if A11y.Results.Failed (Result)
         or else A11y.Resource_Limits.Exceeded
-          (Limits, A11y.Resource_Limits.Native_Array_Size, Total)
+          (Limits, A11y.Resource_Limits.Native_Message_Size, Total)
       then
          Result := (Status => A11y.Results.Resource_Limit);
          return Empty_Transport_Packet (Frame.Metadata.Kind);
@@ -3368,6 +3375,118 @@ package body A11y.Linux.DBus_Messages is
          return A11y.Linux.DBus_Codec.String_Vectors.Empty_Vector;
    end Decode_Reference_Array_Body;
 
+   function Cache_Items_Body
+     (Bus_Name  : Unbounded_String;
+      Session   : A11y.Native_Identity.Backend_Session_Id;
+      Snapshots : A11y.Linux.ATSPi_Method_Router.Snapshot_Bundle)
+      return Unbounded_String
+   is
+      use type A11y.Node_Ids.Node_Id;
+      Tree     : A11y.Trees.Semantic_Tree renames Snapshots.Accessible.Tree;
+      Bytes    : Unbounded_String;
+      Size     : Unbounded_String;
+      Length_At : Positive;
+      First    : Natural;
+      Result   : A11y.Results.Result;
+      App_Path : constant Unbounded_String :=
+        A11y.Linux.ATSPi_Objects.Object_Path (Session, A11y.Node_Ids.From_Natural (1), Result);
+   begin
+      Append_U32_LE (Bytes, 0);
+      Length_At := 1;
+      Align (Bytes, 8);
+      First := Length (Bytes);
+
+      for Index in 1 .. A11y.Node_Ids.Max_Node_Ids loop
+         declare
+            Node : constant A11y.Node_Ids.Node_Id := A11y.Node_Ids.From_Natural (Index);
+            Meta : constant A11y.Semantic_Snapshots.Node_Metadata :=
+              A11y.Semantic_Snapshots.Metadata (Snapshots.Accessible.Nodes, Node);
+         begin
+            exit when not Meta.Present;
+            declare
+               Path      : constant Unbounded_String :=
+                 A11y.Linux.ATSPi_Objects.Object_Path (Session, Node, Result);
+               Parent    : constant A11y.Node_Ids.Node_Id := A11y.Trees.Parent_Of (Tree, Node);
+               Siblings  : constant A11y.Trees.Child_Vectors.Vector :=
+                 (if A11y.Node_Ids.Is_Valid (Parent)
+                  then A11y.Trees.Children_Of (Tree, Parent)
+                  else A11y.Trees.Child_Vectors.Empty_Vector);
+               Position  : Integer := -1;
+               Names     : constant A11y.Linux.DBus_Codec.String_Vectors.Vector :=
+                 A11y.Linux.ATSPi_Cache.Interface_Names
+                   (A11y.Linux.ATSPi_Cache.Interfaces_For (Meta.Capabilities));
+               States    : constant A11y.Linux.ATSPi_Mappings.ATSPI_State_Set :=
+                 A11y.Linux.ATSPi_Mappings.Map_States (Meta.States);
+               Low, High : Interfaces.Unsigned_32 := 0;
+            begin
+               for Sibling in Siblings.First_Index .. Siblings.Last_Index loop
+                  if Siblings (Sibling) = Node then
+                     Position := Sibling - Siblings.First_Index;
+                  end if;
+               end loop;
+
+               Align (Bytes, 8);
+               Append_Reference (Bytes, Bus_Name, Path);
+               Append_Reference (Bytes, Bus_Name, App_Path);
+               if A11y.Node_Ids.Is_Valid (Parent) then
+                  Append_Reference
+                    (Bytes, Bus_Name, A11y.Linux.ATSPi_Objects.Object_Path (Session, Parent, Result));
+               else
+                  Append_Reference
+                    (Bytes, To_Unbounded_String (Desktop_Bus_Name), To_Unbounded_String (Desktop_Path));
+               end if;
+               Align (Bytes, 4);
+               Append_I32_LE (Bytes, Position);
+               Append_I32_LE (Bytes, A11y.Trees.Child_Count (Tree, Node));
+
+               --  as: the interfaces
+               declare
+                  At_Size : constant Positive := Length (Bytes) + 1;
+                  Start   : Natural;
+                  Count   : Unbounded_String;
+               begin
+                  Append_U32_LE (Bytes, 0);
+                  Start := Length (Bytes);
+                  for Name of Names loop
+                     Append_DBus_String (Bytes, Name);
+                  end loop;
+                  Append_U32_LE (Count, Length (Bytes) - Start);
+                  Replace_Slice (Bytes, At_Size, At_Size + 3, To_String (Count));
+               end;
+
+               Append_DBus_String (Bytes, Meta.Name.Value);
+               Align (Bytes, 4);
+               Append_U32_LE
+                 (Bytes, A11y.Linux.ATSPi_Mappings.Role_Code (A11y.Linux.ATSPi_Mappings.Map_Role (Meta.Role)));
+               Append_DBus_String (Bytes, Meta.Description.Value);
+
+               --  au: the 64-bit state mask as two words
+               for State in A11y.Linux.ATSPi_Mappings.ATSPI_State loop
+                  if States (State) then
+                     declare
+                        Code : constant Natural := A11y.Linux.ATSPi_Mappings.State_Code (State);
+                     begin
+                        if Code < 32 then
+                           Low := Low or Interfaces.Shift_Left (1, Code);
+                        elsif Code < 64 then
+                           High := High or Interfaces.Shift_Left (1, Code - 32);
+                        end if;
+                     end;
+                  end if;
+               end loop;
+               Align (Bytes, 4);
+               Append_U32_LE (Bytes, 8);
+               Append_U32_LE (Bytes, Natural (Low));
+               Append_U32_LE (Bytes, Natural (High));
+            end;
+         end;
+      end loop;
+
+      Append_U32_LE (Size, Length (Bytes) - First);
+      Replace_Slice (Bytes, Length_At, Length_At + 3, To_String (Size));
+      return Bytes;
+   end Cache_Items_Body;
+
    function Decode_String_Array_Body
      (Payload : Unbounded_String;
       Result  : out A11y.Results.Result)
@@ -4024,6 +4143,8 @@ package body A11y.Linux.DBus_Messages is
            | A11y.Linux.ATSPi_Method_Router.DBus_Variant_Int32
            | A11y.Linux.ATSPi_Method_Router.DBus_Variant_Reference =>
           "v",
+        when A11y.Linux.ATSPi_Method_Router.Cache_Items =>
+          "a((so)(so)(so)iiassusau)",
         when A11y.Linux.ATSPi_Method_Router.DBus_Property_Map =>
           "a{sv}",
         when A11y.Linux.ATSPi_Method_Router.Application_String
@@ -4114,7 +4235,7 @@ package body A11y.Linux.DBus_Messages is
       procedure Check_Size is
       begin
          if A11y.Resource_Limits.Exceeded
-           (Limits, A11y.Resource_Limits.Native_Array_Size, Length (Bytes))
+           (Limits, A11y.Resource_Limits.Native_Message_Size, Length (Bytes))
          then
             Result := (Status => A11y.Results.Resource_Limit);
          end if;
@@ -4331,6 +4452,9 @@ package body A11y.Linux.DBus_Messages is
                Append_Reference (Bytes, Message.Payload_Bus_Name, Message.Payload_Object_Path);
             end;
 
+         when A11y.Linux.ATSPi_Method_Router.Cache_Items =>
+            Append (Bytes, Message.Payload_Text);
+
          when A11y.Linux.ATSPi_Method_Router.DBus_Variant_Reference =>
             Append_DBus_Signature (Bytes, "(so)");
             if Length (Message.Payload_Object_Path) = 0 then
@@ -4391,7 +4515,7 @@ package body A11y.Linux.DBus_Messages is
                      Append_Reference (Bytes, Message.Payload_Bus_Name, Path);
                   end loop;
                   if A11y.Resource_Limits.Exceeded
-                    (Limits, A11y.Resource_Limits.Native_Array_Size, Length (Bytes) - First)
+                    (Limits, A11y.Resource_Limits.Native_Array_Size, Natural (Paths.Length))
                   then
                      Result := (Status => A11y.Results.Resource_Limit);
                      return Null_Unbounded_String;
