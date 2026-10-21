@@ -26,6 +26,14 @@ project A11ykit_Tests is
            ("native_client_uia.adb",
             "uia_router_tests.adb",
             "windows_vm_probe.adb");
+      when "macos" =>
+         --  The main suite tests the Linux backend, which the library does not
+         --  carry here; the UI Automation router needs only its own sources.
+         for Languages use ("Ada", "C");
+         for Source_Dirs use
+           ("src", "../src/platform/windows", "../native/windows");
+         for Excluded_Source_Files use ("a11ykit-provider.adb");
+         for Main use ("native_client_uia.adb", "uia_router_tests.adb");
       when others =>
          for Languages use ("Ada", "C");
          for Source_Dirs use

@@ -118,10 +118,15 @@ jobs:
         working-directory: a11ykit/tests
         run: |
           alr --non-interactive build
-          # The binaries carry .exe on Windows, and bash will not find them under
-          # the Unix name. Each suite sets a failing exit status on any FAIL line.
+          # The main suite tests the Linux backend, the one the library carries
+          # there; every host runs both router suites, which need only the
+          # library. The binaries carry .exe on Windows, and bash will not find
+          # them under the Unix name. Each suite sets a failing exit status on
+          # any FAIL line, and a suite that was not built fails too.
+          suites="uia_router_tests nsax_router_tests"
+          [ "$RUNNER_OS" = "Linux" ] && suites="a11ykit_tests $suites"
           status=0
-          for suite in a11ykit_tests uia_router_tests nsax_router_tests; do
+          for suite in $suites; do
             exe=./bin/$suite
             [ -f "$exe.exe" ] && exe="$exe.exe"
             echo "::group::$suite"
