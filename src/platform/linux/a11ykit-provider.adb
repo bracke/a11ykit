@@ -1,5 +1,6 @@
 with Ada.Text_IO;
 with Ada.Calendar;
+with Ada.Containers.Vectors;
 with Ada.Command_Line;
 with Ada.Directories;
 with Ada.Strings.Unbounded;
@@ -47,20 +48,28 @@ package body A11ykit.Provider is
    Window_Active : Boolean := False;
    Last_Tree     : A11ykit.Tree.Accessibility_Tree;
 
-   --  What the screen reader last heard: the tree's structure (each node's
-   --  role, name and parent) and which node had the focus.
-   Last_Structure : Unbounded_String;
-   Last_Focus     : Unbounded_String;
+   --  What the screen reader last heard: each node's signature (its role,
+   --  name and parent) and which node had the focus.
+   package Signature_Vectors is new Ada.Containers.Vectors (Positive, Unbounded_String);
 
-   function Structure_Of (Tree : A11ykit.Tree.Accessibility_Tree) return Unbounded_String is
-      Result : Unbounded_String;
+   Last_Signatures : Signature_Vectors.Vector;
+   Last_Focus      : Unbounded_String;
+
+   --  Nodes whose signature differs from the last publication's, or that are
+   --  new; only these are announced again.
+   Changed : array (1 .. 65_536) of Boolean := [others => False];
+
+   function Signatures_Of (Tree : A11ykit.Tree.Accessibility_Tree) return Signature_Vectors.Vector is
+      Result : Signature_Vectors.Vector;
    begin
       for Item of Tree.Nodes loop
-         Append (Result, A11ykit.Role'Image (Item.Node_Role) & ASCII.NUL & To_String (Item.Name)
-                 & ASCII.NUL & Natural'Image (Item.Parent) & ASCII.LF);
+         Result.Append
+           (To_Unbounded_String
+              (A11ykit.Role'Image (Item.Node_Role) & ASCII.NUL & To_String (Item.Name)
+               & ASCII.NUL & Natural'Image (Item.Parent)));
       end loop;
       return Result;
-   end Structure_Of;
+   end Signatures_Of;
 
    function Focus_Of (Tree : A11ykit.Tree.Accessibility_Tree) return Unbounded_String is
      (if Tree.Focused = 0 then Null_Unbounded_String
@@ -179,11 +188,12 @@ package body A11ykit.Provider is
 
    --  Which of a publication's events go out: a changed tree announces all
    --  of them; an unchanged one only a focus that moved, or nothing.
-   type Event_Filter is (All_Events, Focus_Only, No_Events);
+   type Event_Filter is (All_Events, Changed_Nodes, Focus_Only, No_Events);
 
    procedure Publish_Queued_Events
      (Semantic  : in out A11y.Sessions.Semantic_Session;
       Which     : Event_Filter;
+      Focus_Moved : Boolean;
       Delivered : out Natural;
       Result    : out A11y.Results.Result)
    is
@@ -204,7 +214,12 @@ package body A11ykit.Provider is
          end if;
 
          if Which = All_Events
-           or else (Which = Focus_Only and then Event.Kind = A11y.Events.Focus_Changed)
+           or else (Which in Changed_Nodes | Focus_Only
+                    and then Event.Kind = A11y.Events.Focus_Changed
+                    and then Focus_Moved)
+           or else (Which = Changed_Nodes
+                    and then A11y.Node_Ids.To_Natural (Event.Source) in Changed'Range
+                    and then Changed (A11y.Node_Ids.To_Natural (Event.Source)))
          then
             --  Each publication's semantic session numbers its events from
             --  the start, while the backend admits only ever-later sequences;
@@ -428,19 +443,31 @@ package body A11ykit.Provider is
          end;
       end loop;
 
-      --  A changed tree is announced in full; an unchanged one only by a moved
-      --  focus -- repeating it on every redraw would have the screen reader
-      --  say the focused item again each time the pointer moves.
+      --  The first tree is announced in full; later ones only by the nodes
+      --  that changed or are new, and by a focus that moved -- announcing
+      --  everything again on each redraw would flood the screen reader and
+      --  have it repeat the focused item each time the pointer moves.
       declare
-         Structure : constant Unbounded_String := Structure_Of (Tree);
-         Focus     : constant Unbounded_String := Focus_Of (Tree);
-         Which     : constant Event_Filter :=
-           (if First or else Structure /= Last_Structure then All_Events
+         Signatures : constant Signature_Vectors.Vector := Signatures_Of (Tree);
+         Focus      : constant Unbounded_String := Focus_Of (Tree);
+         Any_Change : Boolean := False;
+         Which      : Event_Filter;
+      begin
+         for Index in Signatures.First_Index .. Signatures.Last_Index loop
+            if Index in Changed'Range then
+               Changed (Index) :=
+                 Index > Last_Signatures.Last_Index
+                 or else Signatures (Index) /= Last_Signatures (Index);
+               Any_Change := Any_Change or else Changed (Index);
+            end if;
+         end loop;
+         Which :=
+           (if First then All_Events
+            elsif Any_Change then Changed_Nodes
             elsif Focus /= Last_Focus then Focus_Only
             else No_Events);
-      begin
-         Publish_Queued_Events (Semantic.all, Which, Delivered, Result);
-         Last_Structure := Structure;
+         Publish_Queued_Events (Semantic.all, Which, Focus /= Last_Focus, Delivered, Result);
+         Last_Signatures := Signatures;
          Last_Focus := Focus;
       end;
       if A11y.Results.Failed (Result) then
