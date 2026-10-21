@@ -26,6 +26,10 @@ package body A11ykit.Provider is
       A11ykit.Provider_Runtime.Publish (Tree);
    end Publish;
 
+   --  Queries reach this host's provider through the window system's own
+   --  message loop, which the application already pumps.
+   procedure Service is null;
+
    function Last_Publish_Status return A11y.Results.Status_Code is
      (A11ykit.Provider_Runtime.Last_Publish_Status);
 

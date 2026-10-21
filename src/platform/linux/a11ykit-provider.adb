@@ -1,12 +1,16 @@
+with Ada.Text_IO;
 with Ada.Strings.Unbounded;
 with Ada.Unchecked_Deallocation;
 
 with A11ykit.Compatibility;
 with A11ykit.Provider_Runtime;
 
+with A11y;
 with A11y.Events;
 with A11y.Linux.ATSPi_Backend_Sessions;
+with A11y.Linux.ATSPi_Startup;
 with A11y.Linux.ATSPi_Method_Router;
+with A11y.Linux.ATSPi_Object_Registry;
 with A11y.Linux.DBus_Auth;
 with A11y.Node_Ids;
 with A11y.Platforms;
@@ -17,9 +21,25 @@ with Hostkit.Process;
 
 package body A11ykit.Provider is
    use Ada.Strings.Unbounded;
+   use type A11y.Event_Sequence;
    use type A11y.Results.Status_Code;
+   use type A11y.Linux.ATSPi_Startup.Pump_Bounded_Stop_Reason;
 
    Session : A11y.Linux.ATSPi_Backend_Sessions.Backend_Session;
+
+   type Snapshot_Access is access A11y.Linux.ATSPi_Method_Router.Snapshot_Bundle;
+   procedure Free is new Ada.Unchecked_Deallocation
+     (A11y.Linux.ATSPi_Method_Router.Snapshot_Bundle, Snapshot_Access);
+
+   --  The tree the screen reader is answered from between publications. A
+   --  registration lives as long as the application does: the session is
+   --  started once and only its snapshots are replaced, because a screen
+   --  reader holds on to the application it found and its object paths.
+   Latest : Snapshot_Access := null;
+
+   --  The sequence number given to the last event handed to the backend.
+   Last_Delivered : A11y.Event_Sequence := A11y.No_Event;
+
 
    function Current_User return A11y.Linux.DBus_Auth.External_User_Id is
       User_Id : Natural := 0;
@@ -79,25 +99,11 @@ package body A11ykit.Provider is
          return;
       end if;
 
-      for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
-         declare
-            Parent_Index : constant Natural := Tree.Nodes (Index).Parent;
-         begin
-            if Parent_Index /= 0 then
-               A11y.Trees.Attach
-                 (Snapshots.Accessible.Tree,
-                  A11ykit.Compatibility.Node_Id_For_Index
-                    (Tree, Parent_Index),
-                  A11ykit.Compatibility.Node_Id_For_Index
-                    (Tree, Index),
-                  Check);
-               if A11y.Results.Failed (Check) then
-                  Result := Check;
-                  return;
-               end if;
-            end if;
-         end;
-      end loop;
+      A11ykit.Compatibility.Attach_Parents_First (Tree, Snapshots.Accessible.Tree, Check);
+      if A11y.Results.Failed (Check) then
+         Result := Check;
+         return;
+      end if;
 
       Metadata :=
         A11y.Semantic_Snapshots.Metadata
@@ -162,8 +168,12 @@ package body A11ykit.Provider is
             return;
          end if;
 
+         --  Each publication's semantic session numbers its events from the
+         --  start, while the backend admits only ever-later sequences; number
+         --  them afresh from one counter that lives as long as the provider.
+         Last_Delivered := Last_Delivered + 1;
          A11y.Linux.ATSPi_Backend_Sessions.Queue_Event_Signal
-           (Session, Event, Queue_Result);
+           (Session, (Event with delta Sequence => Last_Delivered), Queue_Result);
          if A11y.Results.Failed (Queue_Result) then
             Result := Queue_Result;
             return;
@@ -194,33 +204,82 @@ package body A11ykit.Provider is
       null;
    end Start;
 
+   --  A11YKIT_TRACE set in the environment reports, on standard error, why
+   --  a registration ended or a publication fell back -- the questions a
+   --  screen reader that cannot find the application leaves.
+   function Trace_Requested return Boolean is
+      Value : Unbounded_String;
+   begin
+      return Hostkit.Process.Environment_Value ("A11YKIT_TRACE", Value) and then Length (Value) /= 0;
+   end Trace_Requested;
+
+   Tracing : constant Boolean := Trace_Requested;
+
+   procedure Trace (Message : String) is
+   begin
+      if Tracing then
+         Ada.Text_IO.Put_Line (Ada.Text_IO.Standard_Error, "a11ykit: " & Message);
+      end if;
+   end Trace;
+
    procedure Stop is
       Result : A11y.Results.Result;
    begin
       if A11y.Linux.ATSPi_Backend_Sessions.Registered (Session) then
          A11y.Linux.ATSPi_Backend_Sessions.Stop (Session, Result);
       end if;
+      Free (Latest);
    exception
       when others =>
          null;
    end Stop;
 
+   --  Answer pending calls from the latest snapshots; a transport failure
+   --  ends the registration so the next Publish starts a fresh one.
+   procedure Serve (Iterations : Natural) is
+      Report : A11y.Linux.ATSPi_Backend_Sessions.Event_Loop_Bounded_Report;
+      Result : A11y.Results.Result;
+   begin
+      if Latest = null or else not A11y.Linux.ATSPi_Backend_Sessions.Registered (Session) then
+         return;
+      end if;
+      A11y.Linux.ATSPi_Backend_Sessions.Drive_Bounded_Event_Loop
+        (Session, Latest.all, Iterations, 0, Report, Result);
+      --  One call that cannot be served (an unknown method, say, as a client
+      --  that introspects first sends) is that caller's problem, not the
+      --  connection's: only a transport failure ends the registration.
+      if A11y.Results.Failed (Result)
+        and then Result.Status /= A11y.Results.Backend_Unavailable
+        and then Report.Pump.Stop_Reason /= A11y.Linux.ATSPi_Startup.Iteration_Failed
+      then
+         Trace ("serving failed (" & Result.Status'Image & ", "
+                & Report.Last_Operation'Image & ", " & Report.Last_Step_Stop_Reason'Image
+                & "); registration ended");
+         A11y.Linux.ATSPi_Backend_Sessions.Stop (Session, Result);
+      elsif A11y.Results.Failed (Result) and then Result.Status /= A11y.Results.Backend_Unavailable then
+         Trace ("a call could not be served (" & Result.Status'Image & ")");
+      end if;
+   exception
+      when others =>
+         null;
+   end Serve;
+
+   procedure Service is
+   begin
+      Serve (16);
+   end Service;
+
    procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
       type Semantic_Access is access A11y.Sessions.Semantic_Session;
-      type Snapshot_Access is access
-        A11y.Linux.ATSPi_Method_Router.Snapshot_Bundle;
       procedure Free is new Ada.Unchecked_Deallocation
         (A11y.Sessions.Semantic_Session, Semantic_Access);
-      procedure Free is new Ada.Unchecked_Deallocation
-        (A11y.Linux.ATSPi_Method_Router.Snapshot_Bundle, Snapshot_Access);
 
-      Root : A11y.Node_Ids.Node_Id;
-      Result : A11y.Results.Result;
-      Semantic : Semantic_Access := null;
+      Root      : A11y.Node_Ids.Node_Id;
+      Result    : A11y.Results.Result;
+      Semantic  : Semantic_Access := null;
       Snapshots : Snapshot_Access := null;
       Delivered : Natural := 0;
-      Event_Loop_Report :
-        A11y.Linux.ATSPi_Backend_Sessions.Event_Loop_Bounded_Report;
+      First     : Boolean;
 
       procedure Release_Working_State is
       begin
@@ -244,6 +303,7 @@ package body A11ykit.Provider is
 
       Build_Snapshots (Tree, Root, Snapshots.all, Result);
       if A11y.Results.Failed (Result) then
+         Trace ("tree not publishable (" & Result.Status'Image & ")");
          Release_Working_State;
          A11ykit.Provider_Runtime.Publish (Tree);
          return;
@@ -257,42 +317,51 @@ package body A11ykit.Provider is
          return;
       end if;
 
-      if A11y.Linux.ATSPi_Backend_Sessions.Registered (Session) then
-         A11y.Linux.ATSPi_Backend_Sessions.Stop (Session, Result);
+      First := not A11y.Linux.ATSPi_Backend_Sessions.Registered (Session);
+      if First then
+         A11y.Linux.ATSPi_Backend_Sessions.Start_From_Host_Environment
+           (Session, Current_User, Root, Result);
+         if A11y.Results.Failed (Result)
+           or else not A11y.Linux.ATSPi_Backend_Sessions.Registered (Session)
+         then
+            Trace ("registration failed (" & Result.Status'Image & ")");
+            Release_Working_State;
+            A11ykit.Provider_Runtime.Publish (Tree);
+            return;
+         end if;
       end if;
 
-      A11y.Linux.ATSPi_Backend_Sessions.Start_From_Host_Environment
-        (Session, Current_User, Root, Result);
-      if A11y.Results.Failed (Result)
-        or else not A11y.Linux.ATSPi_Backend_Sessions.Registered (Session)
-      then
-         Release_Working_State;
-         A11ykit.Provider_Runtime.Publish (Tree);
-         return;
-      end if;
+      --  Every node is a D-Bus object a screen reader can address; only the
+      --  application root is registered with the session itself.
+      for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
+         declare
+            Descriptor : A11y.Linux.ATSPi_Object_Registry.Object_Export_Descriptor;
+         begin
+            A11y.Linux.ATSPi_Backend_Sessions.Node_Descriptor
+              (Session, A11ykit.Compatibility.Node_Id_For_Index (Tree, Index), Descriptor);
+         end;
+      end loop;
 
+      --  Every publication announces its tree's events: the screen reader
+      --  learns of a change only from them. The registration itself is kept.
       Publish_Queued_Events (Semantic.all, Delivered, Result);
       if A11y.Results.Failed (Result) then
+         Trace ("events not delivered (" & Result.Status'Image & ", " & Delivered'Image
+                & " sent); registration ended");
          A11y.Linux.ATSPi_Backend_Sessions.Stop (Session, Result);
          Release_Working_State;
          A11ykit.Provider_Runtime.Publish (Tree);
          return;
       end if;
 
-      A11y.Linux.ATSPi_Backend_Sessions.Drive_Bounded_Event_Loop
-        (Session, Snapshots.all, 8, 0, Event_Loop_Report, Result);
-      if Result.Status = A11y.Results.Backend_Unavailable then
-         Result := A11y.Results.Ok;
-      elsif A11y.Results.Failed (Result) then
-         A11y.Linux.ATSPi_Backend_Sessions.Stop (Session, Result);
-         Release_Working_State;
-         A11ykit.Provider_Runtime.Publish (Tree);
-         return;
-      end if;
+      Free (Latest);
+      Latest := Snapshots;
+      Snapshots := null;
+      Free (Semantic);
+      Serve (8);
 
-      Release_Working_State;
       A11ykit.Provider_Runtime.Record_Publish_Result
-        (Result.Status, Delivered, Backend_Name, False, Result.Status);
+        (A11y.Results.Success, Delivered, Backend_Name, False, A11y.Results.Success);
    exception
       when others =>
          Release_Working_State;

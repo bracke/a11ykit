@@ -40,6 +40,13 @@ package A11ykit.Provider is
    --  @param Tree The accessibility tree to publish.
    procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree);
 
+   --  Answer whatever the host's screen reader has asked since the last call,
+   --  from the most recently published tree, without waiting. A screen reader
+   --  queries an application at any time, not only when its tree changes, so
+   --  an application calls this from its event loop on every iteration. A
+   --  no-op where the host delivers queries some other way.
+   procedure Service;
+
    --  Result of the most recent compatibility publication attempt. This is
    --  semantic/backend validation state, not proof that a native host provider
    --  is registered; Available remains the native-registration truth.

@@ -99,25 +99,17 @@ package body A11ykit.Provider is
          return;
       end if;
 
+      A11ykit.Compatibility.Attach_Parents_First (Tree, Snapshots.Properties.Tree, Check);
+      if A11y.Results.Failed (Check) then
+         Result := Check;
+         return;
+      end if;
+
       for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
          declare
             Node : constant A11y.Node_Ids.Node_Id :=
               A11ykit.Compatibility.Node_Id_For_Index (Tree, Index);
-            Parent_Index : constant Natural := Tree.Nodes (Index).Parent;
          begin
-            if Parent_Index /= 0 then
-               A11y.Trees.Attach
-                 (Snapshots.Properties.Tree,
-                  A11ykit.Compatibility.Node_Id_For_Index
-                    (Tree, Parent_Index),
-                  Node,
-                  Check);
-               if A11y.Results.Failed (Check) then
-                  Result := Check;
-                  return;
-               end if;
-            end if;
-
             Metadata :=
               A11y.Semantic_Snapshots.Metadata
                 (Snapshots.Properties.Nodes, Node);
@@ -450,6 +442,10 @@ package body A11ykit.Provider is
            (A11y.Results.Internal_Error, 0, Backend_Name, False,
             A11y.Results.Internal_Error);
    end Publish;
+
+   --  Queries reach this host's provider through the window system's own
+   --  message loop, which the application already pumps.
+   procedure Service is null;
 
    function Last_Publish_Status return A11y.Results.Status_Code is
      (A11ykit.Provider_Runtime.Last_Publish_Status);

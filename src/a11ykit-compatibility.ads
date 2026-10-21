@@ -8,6 +8,7 @@ with A11y.Roles;
 with A11y.Semantic_Snapshots;
 with A11y.Sessions;
 with A11y.States;
+with A11y.Trees;
 
 package A11ykit.Compatibility is
 
@@ -55,5 +56,15 @@ package A11ykit.Compatibility is
      (Tree    : A11ykit.Tree.Accessibility_Tree;
       Session : in out A11y.Sessions.Semantic_Session;
       Result  : out A11y.Results.Result);
+
+   --  Attach every non-root node of Tree to its parent in Target, whose root
+   --  is already set. Build infers parents from geometry over a flat list in
+   --  reading order, so a parent may come after its child; each node's
+   --  ancestor chain is attached from the top down instead of assuming the
+   --  list is in tree order.
+   procedure Attach_Parents_First
+     (Tree   : A11ykit.Tree.Accessibility_Tree;
+      Target : in out A11y.Trees.Semantic_Tree;
+      Result : out A11y.Results.Result);
 
 end A11ykit.Compatibility;

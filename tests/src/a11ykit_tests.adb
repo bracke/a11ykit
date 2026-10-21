@@ -22818,6 +22818,34 @@ begin
            Envelope.Body_Object_Path_Argument,
          "Linux D-Bus message envelope decodes transport envelopes");
 
+      --  A call exactly as gdbus (and libdbus) sends it: no arguments, so an
+      --  empty signature header field and no body, and the sender field the
+      --  bus daemon appends last. A screen reader's GetRole looks like this.
+      declare
+         Hex  : constant String :=
+           "6c01000100000000030000008700000001016f001e0000002f6f72672f613131" &
+           "792f6164612f73657373696f6e2f322f6e6f64652f3100000201730019000000" &
+           "6f72672e613131792e61747370692e41636365737369626c6500000000000000" &
+           "06017300060000003a312e313636000008016700000000000301730007000000" &
+           "476574526f6c650007017300060000003a312e3136380000";
+         Raw  : Unbounded_String;
+         Call : A11y.Linux.DBus_Messages.Transport_Envelope;
+      begin
+         for Index in 0 .. Hex'Length / 2 - 1 loop
+            Append
+              (Raw,
+               Character'Val
+                 (Natural'Value ("16#" & Hex (Hex'First + 2 * Index .. Hex'First + 2 * Index + 1) & "#")));
+         end loop;
+         Call := A11y.Linux.DBus_Messages.Decode_Transport_Envelope (Raw, Result);
+         Check
+           (A11y.Results.Succeeded (Result)
+            and then Call.Kind = A11y.Linux.DBus_Messages.Method_Call
+            and then To_String (Call.Member_Name) = "GetRole"
+            and then Length (Call.Body_Signature) = 0,
+            "Linux D-Bus message envelope decodes an argument-less call with an empty signature field");
+      end;
+
       declare
          Raw : String := To_String (Packet.Bytes);
          Corrupt_Envelope : A11y.Linux.DBus_Messages.Transport_Envelope;
@@ -23511,6 +23539,39 @@ begin
          and then Envelope.Kind = A11y.Linux.DBus_Messages.Signal_Message
          and then Length (Envelope.Member_Name) = 0,
          "Linux D-Bus message envelope rejects empty signal names");
+
+      --  An AT-SPI event name is not a D-Bus member: "object:children-changed:add"
+      --  goes out as Event.Object / ChildrenChanged with "add" in its body. A
+      --  bus disconnects a client that sends the event name as the member.
+      Outgoing :=
+        (Kind           => A11y.Linux.DBus_Messages.Signal_Message,
+         Serial         => 37,
+         Reply_Serial   => 0,
+         Status         => A11y.Results.Success,
+         Object_Path    => To_Unbounded_String ("/org/a11y/atspi/accessible/root"),
+         Event_Name     => To_Unbounded_String ("object:children-changed:add"));
+      Envelope := A11y.Linux.DBus_Messages.Build_Transport_Envelope
+        (Outgoing, Result);
+      Check
+        (A11y.Results.Succeeded (Result)
+         and then To_String (Envelope.Interface_Name) = "org.a11y.atspi.Event.Object"
+         and then To_String (Envelope.Member_Name) = "ChildrenChanged"
+         and then To_String (Envelope.Body_Signature) = "siiva{sv}"
+         and then Length (Envelope.Body_Bytes) > 0,
+         "Linux AT-SPI event signals carry the event interface, a CamelCase member and a body");
+      declare
+         Packet : constant A11y.Linux.DBus_Messages.Transport_Packet :=
+           A11y.Linux.DBus_Messages.Build_Transport_Packet (Envelope, Result);
+         Round  : A11y.Linux.DBus_Messages.Transport_Envelope;
+      begin
+         Round := A11y.Linux.DBus_Messages.Decode_Transport_Envelope (Packet.Bytes, Result);
+         Check
+           (A11y.Results.Succeeded (Result)
+            and then Round.Interface_Name = Envelope.Interface_Name
+            and then Round.Member_Name = Envelope.Member_Name
+            and then Round.Body_Signature = Envelope.Body_Signature,
+            "Linux AT-SPI event signals encode a header the decoder reads back");
+      end;
    end;
 
    declare

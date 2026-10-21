@@ -389,6 +389,11 @@ package body A11y.Linux.ATSPi_Accessible is
    is
       Result : A11y.Results.Result;
       Node : A11y.Node_Ids.Node_Id;
+
+      --  The snapshot seen from the node the call names: tree questions
+      --  (children, parent, index) are about that node, not the root.
+      function At_Node return Accessible_Snapshot is
+        ((Snapshot with delta Id => Node));
       Node_View : A11y.Semantic_Snapshots.Node_Metadata;
       Has_Node_View : Boolean := False;
       Encoded : A11y.Linux.DBus_Codec.DBus_Value;
@@ -740,7 +745,7 @@ package body A11y.Linux.ATSPi_Accessible is
       elsif Method = "GetChildCount" then
          declare
             Count : constant Natural :=
-              Projected_Child_Count (Snapshot, Result);
+              Projected_Child_Count (At_Node, Result);
          begin
             if A11y.Results.Failed (Result) then
                return Error (Result.Status);
@@ -759,7 +764,7 @@ package body A11y.Linux.ATSPi_Accessible is
       elsif Method = "GetChildAtIndex" then
          declare
             Child : constant A11y.Node_Ids.Node_Id :=
-              Projected_Child_At (Snapshot, Index, Result);
+              Projected_Child_At (At_Node, Index, Result);
          begin
             if A11y.Results.Failed (Result) then
                return Error (Result.Status);
@@ -778,7 +783,7 @@ package body A11y.Linux.ATSPi_Accessible is
                Children := Snapshot.Children;
                Result := A11y.Results.Ok;
             elsif not A11y.Node_Ids.Is_Valid (Snapshot.Root)
-              or else not Is_Externally_Exposed (Snapshot, Snapshot.Id)
+              or else not Is_Externally_Exposed (Snapshot, Node)
             then
                return Error (A11y.Results.Node_Unavailable);
             else
@@ -793,7 +798,7 @@ package body A11y.Linux.ATSPi_Accessible is
                begin
                   Exposure_View.Exposed_Children_Of
                     (Snapshot.Tree,
-                     Snapshot.Id,
+                     Node,
                      Snapshot.Limits,
                      Children,
                      Result);
@@ -812,7 +817,7 @@ package body A11y.Linux.ATSPi_Accessible is
       elsif Method = "GetParent" then
          declare
             Parent : constant A11y.Node_Ids.Node_Id :=
-              Projected_Parent (Snapshot, Result);
+              Projected_Parent (At_Node, Result);
          begin
             if A11y.Results.Failed (Result) then
                return Error (Result.Status);
@@ -826,7 +831,7 @@ package body A11y.Linux.ATSPi_Accessible is
       elsif Method = "GetIndexInParent" then
          declare
             Parent_Index : constant Integer :=
-              Projected_Index_In_Parent (Snapshot, Result);
+              Projected_Index_In_Parent (At_Node, Result);
          begin
             if A11y.Results.Failed (Result) then
                return Error (Result.Status);

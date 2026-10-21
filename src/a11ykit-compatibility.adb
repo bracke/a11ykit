@@ -430,4 +430,63 @@ package body A11ykit.Compatibility is
          Result := (Status => A11y.Results.Internal_Error);
    end Populate_Session;
 
+   procedure Attach_Parents_First
+     (Tree   : A11ykit.Tree.Accessibility_Tree;
+      Target : in out A11y.Trees.Semantic_Tree;
+      Result : out A11y.Results.Result) is
+   begin
+      Result := A11y.Results.Ok;
+      if Tree.Nodes.Is_Empty then
+         return;
+      end if;
+
+      declare
+         type Attachment_Map is array
+           (Tree.Nodes.First_Index .. Tree.Nodes.Last_Index) of Boolean;
+         type Index_Path is array (Positive range <>) of Positive;
+         Attached : Attachment_Map := [others => False];
+         Path     : Index_Path (1 .. Natural (Tree.Nodes.Length));
+      begin
+         for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
+            if Tree.Nodes (Index).Parent = 0 then
+               Attached (Index) := True;  --  the root, set by the caller
+            end if;
+         end loop;
+
+         for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
+            if not Attached (Index) then
+               declare
+                  Current : Natural := Index;
+                  Depth   : Natural := 0;
+               begin
+                  while not Attached (Current) loop
+                     Depth := Depth + 1;
+                     if Depth > Path'Length then
+                        Result := (Status => A11y.Results.Invalid_State);
+                        return;
+                     end if;
+                     Path (Depth) := Current;
+                     Current := Tree.Nodes (Current).Parent;
+                  end loop;
+
+                  for Position in reverse 1 .. Depth loop
+                     A11y.Trees.Attach
+                       (Target,
+                        Node_Id_For_Index (Tree, Tree.Nodes (Path (Position)).Parent),
+                        Node_Id_For_Index (Tree, Path (Position)),
+                        Result);
+                     if A11y.Results.Failed (Result) then
+                        return;
+                     end if;
+                     Attached (Path (Position)) := True;
+                  end loop;
+               end;
+            end if;
+         end loop;
+      end;
+   exception
+      when others =>
+         Result := (Status => A11y.Results.Internal_Error);
+   end Attach_Parents_First;
+
 end A11ykit.Compatibility;

@@ -347,37 +347,53 @@ package body A11y.Linux.ATSPi_DBus_Boundary is
       end if;
 
       if Requested_Interface = Accessible_Interface then
-         if To_String (Call.Method_Name) = DBus_Get_All_Method then
-            declare
-               Items : A11y.Linux.DBus_Codec.String_Vectors.Vector;
-            begin
-               Add_Property_String (Items, "Name", Snapshots.Accessible.Name);
-               Add_Property_String
-                 (Items, "Description", Snapshots.Accessible.Description);
-               Add_Property_UInt32
-                 (Items,
-                  "Role",
-                  A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos
-                    (A11y.Linux.ATSPi_Mappings.Map_Role
-                       (Snapshots.Accessible.Role)));
-               Add_Property_UInt32
-                 (Items, "ChildCount", Snapshots.Accessible.Child_Count);
-               return Property_Map (Items);
-            end;
-         elsif Property_Name = "Name" then
-            return Variant_String (Snapshots.Accessible.Name);
-         elsif Property_Name = "Description" then
-            return Variant_String (Snapshots.Accessible.Description);
-         elsif Property_Name = "Role" then
-            return Variant_UInt32
-              (A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos
-                 (A11y.Linux.ATSPi_Mappings.Map_Role
-                    (Snapshots.Accessible.Role)));
-         elsif Property_Name = "ChildCount" then
-            return Variant_UInt32 (Snapshots.Accessible.Child_Count);
-         else
-            return Error (A11y.Results.Unsupported_Property);
-         end if;
+         --  Answer for the object the call names, not the application root:
+         --  a screen reader walks the tree by reading each child's Name, Role
+         --  and ChildCount properties.
+         declare
+            use type A11y.Linux.ATSPi_Accessible.Reply_Kind;
+            Path : constant String := To_String (Call.Object_Path);
+
+            function Ask (Method : String) return A11y.Linux.ATSPi_Accessible.Accessible_Reply is
+              (A11y.Linux.ATSPi_Accessible.Handle_Method
+                 (Call.Session, Path, Method, Snapshots.Accessible));
+
+            Name        : constant A11y.Linux.ATSPi_Accessible.Accessible_Reply := Ask ("GetName");
+            Description : constant A11y.Linux.ATSPi_Accessible.Accessible_Reply := Ask ("GetDescription");
+            Role        : constant A11y.Linux.ATSPi_Accessible.Accessible_Reply := Ask ("GetRole");
+            Child_Count : constant A11y.Linux.ATSPi_Accessible.Accessible_Reply := Ask ("GetChildCount");
+         begin
+            if Name.Kind /= A11y.Linux.ATSPi_Accessible.String_Reply
+              or else Description.Kind /= A11y.Linux.ATSPi_Accessible.String_Reply
+              or else Role.Kind /= A11y.Linux.ATSPi_Accessible.Role_Reply
+              or else Child_Count.Kind /= A11y.Linux.ATSPi_Accessible.UInt32_Reply
+            then
+               return Error (A11y.Results.Node_Unavailable);
+            end if;
+
+            if To_String (Call.Method_Name) = DBus_Get_All_Method then
+               declare
+                  Items : A11y.Linux.DBus_Codec.String_Vectors.Vector;
+               begin
+                  Add_Property_String (Items, "Name", Name.Text);
+                  Add_Property_String (Items, "Description", Description.Text);
+                  Add_Property_UInt32
+                    (Items, "Role", A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos (Role.Role));
+                  Add_Property_UInt32 (Items, "ChildCount", Child_Count.UInt32);
+                  return Property_Map (Items);
+               end;
+            elsif Property_Name = "Name" then
+               return Variant_String (Name.Text);
+            elsif Property_Name = "Description" then
+               return Variant_String (Description.Text);
+            elsif Property_Name = "Role" then
+               return Variant_UInt32 (A11y.Linux.ATSPi_Mappings.ATSPI_Role'Pos (Role.Role));
+            elsif Property_Name = "ChildCount" then
+               return Variant_UInt32 (Child_Count.UInt32);
+            else
+               return Error (A11y.Results.Unsupported_Property);
+            end if;
+         end;
       elsif Requested_Interface = Application_Interface then
          if Snapshots.Accessible.Role /= A11y.Roles.Application then
             return Error (A11y.Results.Unsupported_Capability);

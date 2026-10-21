@@ -438,6 +438,79 @@ package body A11y.Linux.DBus_Messages is
       end loop;
    end Align;
 
+   --  An AT-SPI event name, "class:name" or "class:name:detail", is sent as
+   --  a D-Bus signal on interface org.a11y.atspi.Event.<Class> with member
+   --  <Name> in CamelCase, and the detail as the body's first argument. The
+   --  name itself is not a legal D-Bus member -- a bus disconnects a client
+   --  that sends one.
+   procedure Split_Event_Name
+     (Event_Name     : String;
+      Interface_Name : out Unbounded_String;
+      Member         : out Unbounded_String;
+      Detail         : out Unbounded_String)
+   is
+      First_Colon  : constant Natural := Ada.Strings.Fixed.Index (Event_Name, ":");
+      Second_Colon : constant Natural :=
+        (if First_Colon = 0 then 0
+         else Ada.Strings.Fixed.Index (Event_Name (First_Colon + 1 .. Event_Name'Last), ":"));
+      Class : constant String := (if First_Colon = 0 then Event_Name else Event_Name (Event_Name'First .. First_Colon - 1));
+      Name  : constant String :=
+        (if First_Colon = 0 then ""
+         elsif Second_Colon = 0 then Event_Name (First_Colon + 1 .. Event_Name'Last)
+         else Event_Name (First_Colon + 1 .. Second_Colon - 1));
+
+      --  "children-changed" -> "ChildrenChanged".
+      function Camel (Text : String) return String is
+         Result : Unbounded_String;
+         Upper  : Boolean := True;
+      begin
+         for C of Text loop
+            if C = '-' or else C = '_' then
+               Upper := True;
+            elsif Upper and then C in 'a' .. 'z' then
+               Append (Result, Character'Val (Character'Pos (C) - 32));
+               Upper := False;
+            else
+               Append (Result, C);
+               Upper := False;
+            end if;
+         end loop;
+         return To_String (Result);
+      end Camel;
+   begin
+      Interface_Name := To_Unbounded_String ("org.a11y.atspi.Event." & Camel (Class));
+      Member := To_Unbounded_String (Camel (Name));
+      Detail :=
+        To_Unbounded_String
+          ((if Second_Colon = 0 then "" else Event_Name (Second_Colon + 1 .. Event_Name'Last)));
+   end Split_Event_Name;
+
+   --  The body every AT-SPI event signal carries, signature "siiva{sv}":
+   --  the detail, two integers, an any-data variant and a property map.
+   Event_Body_Signature : constant String := "siiva{sv}";
+
+   function Event_Body (Detail : String; Detail1 : Integer) return Unbounded_String is
+      Bytes : Unbounded_String;
+   begin
+      Append_U32_LE (Bytes, Detail'Length);
+      Append (Bytes, Detail);
+      Append_Byte (Bytes, 0);
+      Align (Bytes, 4);
+      Append_I32_LE (Bytes, Detail1);
+      Append_I32_LE (Bytes, 0);
+      --  any_data: a variant holding the integer 0.
+      Append_Byte (Bytes, 1);
+      Append (Bytes, "i");
+      Append_Byte (Bytes, 0);
+      Align (Bytes, 4);
+      Append_I32_LE (Bytes, 0);
+      --  properties: an empty a{sv}; its elements would start 8-aligned.
+      Align (Bytes, 4);
+      Append_U32_LE (Bytes, 0);
+      Align (Bytes, 8);
+      return Bytes;
+   end Event_Body;
+
    procedure Append_Boolean
      (Bytes : in out Unbounded_String;
       Value : Boolean) is
@@ -1257,26 +1330,40 @@ package body A11y.Linux.DBus_Messages is
                return Empty_Envelope (Message.Kind, Result.Status);
             end if;
 
-            Result := A11y.Results.Ok;
-            return
-              (Kind                      => Signal_Message,
-               Serial                    => Message.Serial,
-               Reply_Serial              => 0,
-               Status                    => Message.Status,
-               Object_Path               => Message.Object_Path,
-               Interface_Name            => Null_Unbounded_String,
-               Member_Name               => Message.Event_Name,
-               Error_Name                => Null_Unbounded_String,
-               Sender_Name               => Null_Unbounded_String,
-               Body_Signature            => Null_Unbounded_String,
-               Body_Bytes                => Null_Unbounded_String,
-               Body_Object_Path_Argument => Null_Unbounded_String,
-               Body_String_Argument      => Null_Unbounded_String,
-               Body_String_Argument_2    => Null_Unbounded_String,
-               Body_UInt32_Argument      => 0,
-               Body_UInt32_Argument_2    => 0,
-               Body_Point_Argument       => (X => 0, Y => 0),
-               Body_Float_Argument       => 0.0);
+            declare
+               Interface_Name : Unbounded_String;
+               Member         : Unbounded_String;
+               Detail         : Unbounded_String;
+            begin
+               Split_Event_Name (To_String (Message.Event_Name), Interface_Name, Member, Detail);
+               if Length (Member) = 0 then
+                  Result := (Status => A11y.Results.Invalid_Argument);
+                  return Empty_Envelope (Message.Kind, A11y.Results.Invalid_Argument);
+               end if;
+
+               Result := A11y.Results.Ok;
+               return
+                 (Kind                      => Signal_Message,
+                  Serial                    => Message.Serial,
+                  Reply_Serial              => 0,
+                  Status                    => Message.Status,
+                  Object_Path               => Message.Object_Path,
+                  Interface_Name            => Interface_Name,
+                  Member_Name               => Member,
+                  Error_Name                => Null_Unbounded_String,
+                  Sender_Name               => Null_Unbounded_String,
+                  Body_Signature            => To_Unbounded_String (Event_Body_Signature),
+                  --  A state-changed event reports a state being set.
+                  Body_Bytes                =>
+                    Event_Body (To_String (Detail), (if To_String (Member) = "StateChanged" then 1 else 0)),
+                  Body_Object_Path_Argument => Null_Unbounded_String,
+                  Body_String_Argument      => Null_Unbounded_String,
+                  Body_String_Argument_2    => Null_Unbounded_String,
+                  Body_UInt32_Argument      => 0,
+                  Body_UInt32_Argument_2    => 0,
+                  Body_Point_Argument       => (X => 0, Y => 0),
+                  Body_Float_Argument       => 0.0);
+            end;
       end case;
    exception
       when others =>
@@ -1870,8 +1957,16 @@ package body A11y.Linux.DBus_Messages is
             end if;
 
          when Signal_Message =>
+            Payload := Envelope.Body_Bytes;
             Append_Field_Text (Header_Data, 1, "o", Envelope.Object_Path);
+            if Length (Envelope.Interface_Name) /= 0 then
+               Append_Field_Text (Header_Data, 2, "s", Envelope.Interface_Name);
+            end if;
             Append_Field_Text (Header_Data, 3, "s", Envelope.Member_Name);
+            if Length (Envelope.Body_Signature) /= 0 then
+               Append_Field_Signature
+                 (Header_Data, 8, To_String (Envelope.Body_Signature));
+            end if;
       end case;
 
       Append_Byte (Header, Character'Pos ('l'));
@@ -2374,6 +2469,12 @@ package body A11y.Linux.DBus_Messages is
                      return Empty_Envelope (Header.Kind, Result.Status);
                   end if;
                   Seen_Signature := True;
+                  --  libdbus and GDBus send an empty signature field with a
+                  --  call that has no arguments; it says nothing a missing
+                  --  field would not, so it is not one the message needs.
+                  if Length (Envelope.Body_Signature) = 0 then
+                     Ignored_Header_Field_Count := Ignored_Header_Field_Count + 1;
+                  end if;
                when 9 =>
                   if Seen_Unix_FDs or else To_String (Field_Signature) /= "u" then
                      Fail (A11y.Results.Invalid_Argument);
