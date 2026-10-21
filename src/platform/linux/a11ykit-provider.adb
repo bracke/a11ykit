@@ -53,6 +53,12 @@ package body A11ykit.Provider is
    package Signature_Vectors is new Ada.Containers.Vectors (Positive, Unbounded_String);
 
    Last_Signatures : Signature_Vectors.Vector;
+
+   package Index_Vectors is new Ada.Containers.Vectors (Positive, Natural);
+
+   --  Each node's parent in the last publication, to tell a parent that a
+   --  child is gone.
+   Last_Parents : Index_Vectors.Vector;
    Last_Focus      : Unbounded_String;
 
    --  Nodes whose signature differs from the last publication's, or that are
@@ -467,8 +473,39 @@ package body A11ykit.Provider is
             elsif Focus /= Last_Focus then Focus_Only
             else No_Events);
          Publish_Queued_Events (Semantic.all, Which, Focus /= Last_Focus, Delivered, Result);
+
+         --  Nodes past the new tree's end are gone: tell each one's parent,
+         --  when that parent is still there, that a child was removed.
+         if not First and then A11y.Results.Succeeded (Result) then
+            for Index in Natural (Tree.Nodes.Length) + 1 .. Natural (Last_Parents.Length) loop
+               declare
+                  Parent : constant Natural := Last_Parents (Index);
+                  Queued : A11y.Results.Result;
+               begin
+                  if Parent in 1 .. Natural (Tree.Nodes.Length) then
+                     Last_Delivered := Last_Delivered + 1;
+                     A11y.Linux.ATSPi_Backend_Sessions.Queue_Event_Signal
+                       (Session,
+                        (Sequence  => Last_Delivered,
+                         Timestamp => Ada.Calendar.Clock,
+                         Source    => A11y.Node_Ids.From_Natural (Parent),
+                         Kind      => A11y.Events.Child_Removed,
+                         Revision  => A11y.Initial_Revision),
+                        Queued);
+                     if A11y.Results.Succeeded (Queued) then
+                        Delivered := Delivered + 1;
+                     end if;
+                  end if;
+               end;
+            end loop;
+         end if;
+
          Last_Signatures := Signatures;
          Last_Focus := Focus;
+         Last_Parents.Clear;
+         for Item of Tree.Nodes loop
+            Last_Parents.Append (Item.Parent);
+         end loop;
       end;
       if A11y.Results.Failed (Result) then
          Trace ("events not delivered (" & Result.Status'Image & ", " & Delivered'Image
