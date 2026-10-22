@@ -237,8 +237,9 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
          elsif Selector = ABI.Selector_Code (ABI.Accessibility_Set_Value)
            and then Operand = ABI.Attribute_Code (A11y.MacOS_Backend.NSAccessibility_Properties.Selected)
          then
-            --  Selecting an item is what clicking it does.
-            A11y.Native_Requests.Push ((A11y.Native_Requests.Activate, View.Snapshots.Properties.Id));
+            --  Selecting an item is what a single click does -- not an
+            --  activation, which would open it.
+            A11y.Native_Requests.Push ((A11y.Native_Requests.Select_Item, View.Snapshots.Properties.Id));
          end if;
       end if;
       return Reply.Status = A11y.Results.Success;

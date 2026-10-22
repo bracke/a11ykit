@@ -375,6 +375,15 @@ package body A11y.Linux.ATSPi_Method_Router is
                              Node => Reply.Node,
                              others => <>);
                   when A11y.Linux.ATSPi_Selection.Selection_Request_Reply =>
+                     --  Selecting a child is the application's to carry out,
+                     --  as a single click on it would.
+                     if A11y.Results.Succeeded ((Status => Reply.Status))
+                       and then A11y.Linux.ATSPi_Selection."="
+                         (Reply.Request, A11y.Linux.ATSPi_Selection.Select_Child)
+                     then
+                        A11y.Linux.ATSPi_Requests.Push
+                          ((Kind => A11y.Linux.ATSPi_Requests.Select_Item, Node => Reply.Node));
+                     end if;
                      return (Kind => Selection_Request,
                              Status => Reply.Status,
                              Boolean_Item => A11y.Results.Succeeded

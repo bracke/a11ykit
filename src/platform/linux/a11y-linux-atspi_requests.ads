@@ -1,12 +1,13 @@
 with A11y.Node_Ids;
 
 --  What a screen reader asked the application to do: activate an object
---  (Action.DoAction) or move the focus to it (Component.GrabFocus). The
+--  (Action.DoAction), move the focus to it (Component.GrabFocus), or select
+--  it (Selection.SelectChild on its container). The
 --  D-Bus side records a request it has accepted; the application takes the
 --  requests from its event loop and carries them out, since only it can.
 package A11y.Linux.ATSPi_Requests is
 
-   type Request_Kind is (Activate, Focus);
+   type Request_Kind is (Activate, Focus, Select_Item);
 
    type Request is record
       Kind : Request_Kind := Activate;

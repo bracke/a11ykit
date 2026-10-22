@@ -357,6 +357,8 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
          View.Snapshots.Fragment.Node := Node;
          View.Snapshots.Action_Node := Node;
          View.Snapshots.Relation_Source := Node;
+         --  Whether it is selected is asked of it, not of the focused one.
+         View.Snapshots.Selection.Item := Node;
          --  What can be done to it, and its states, are the element's own.
          declare
             Metadata : constant A11y.Semantic_Snapshots.Node_Metadata :=
@@ -437,8 +439,9 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
               = A11y.Windows_Backend.UIA_ABI_Surface.Method_Code
                   (A11y.Windows_Backend.UIA_ABI_Surface.Selection_Item_Provider_Select)
          then
-            --  Selecting an item is what clicking it does.
-            A11y.Native_Requests.Push ((A11y.Native_Requests.Activate, Context_View.Snapshots.Properties.Id));
+            --  Selecting an item is what a single click does -- not an
+            --  activation, which would open it.
+            A11y.Native_Requests.Push ((A11y.Native_Requests.Select_Item, Context_View.Snapshots.Properties.Id));
          elsif Request_Frame.Method_Code
               = A11y.Windows_Backend.UIA_ABI_Surface.Method_Code
                   (A11y.Windows_Backend.UIA_ABI_Surface.Fragment_Set_Focus)

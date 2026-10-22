@@ -65,10 +65,12 @@ package A11ykit.Provider is
    procedure Set_Active (Active : Boolean);
 
    --  Something the screen reader asked the application to do to a node of
-   --  the last published tree: activate it (as a click would) or move the
-   --  keyboard focus to it. Node is the node's index in that tree and Bounds
-   --  its rectangle, so the application can act on it as on a click there.
-   type Request_Kind is (Activate_Request, Focus_Request);
+   --  the last published tree: activate it (as a double-click or Enter
+   --  would -- open it), move the keyboard focus to it, or select it (as a
+   --  single click would, without opening it). Node is the node's index in
+   --  that tree and Bounds its rectangle, so the application can act on it as
+   --  on a click there.
+   type Request_Kind is (Activate_Request, Focus_Request, Select_Request);
 
    type Request is record
       Kind   : Request_Kind := Activate_Request;

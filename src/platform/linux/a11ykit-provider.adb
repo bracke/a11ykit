@@ -684,7 +684,8 @@ package body A11ykit.Provider is
                  (Kind   =>
                     (case Raw.Kind is
                        when A11y.Linux.ATSPi_Requests.Activate => Activate_Request,
-                       when A11y.Linux.ATSPi_Requests.Focus    => Focus_Request),
+                       when A11y.Linux.ATSPi_Requests.Focus    => Focus_Request,
+                       when A11y.Linux.ATSPi_Requests.Select_Item => Select_Request),
                   Node   => Index,
                   Bounds => Last_Tree.Nodes (Index).Bounds);
                Trace ("screen reader asks to " & Item.Kind'Image & " node" & Index'Image);

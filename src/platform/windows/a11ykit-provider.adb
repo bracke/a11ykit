@@ -624,7 +624,8 @@ package body A11ykit.Provider is
                  (Kind   =>
                     (case Raw.Kind is
                        when A11y.Native_Requests.Activate => Activate_Request,
-                       when A11y.Native_Requests.Focus    => Focus_Request),
+                       when A11y.Native_Requests.Focus    => Focus_Request,
+                       when A11y.Native_Requests.Select_Item => Select_Request),
                   Node   => Index,
                   Bounds => Last_Tree.Nodes (Index).Bounds);
                return True;

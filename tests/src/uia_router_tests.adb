@@ -8986,7 +8986,9 @@ begin
       Tree.Nodes.Append (Node (A11ykit.Role_List_Item, "alpha.txt", 20, 2));
       Tree.Nodes.Append (Node (A11ykit.Role_List_Item, "beta.txt", 40, 2, Selected => True));
       Tree.Nodes.Append (Node (A11ykit.Role_List_Item, "gamma.txt", 60, 2));
-      Tree.Focused := 4;
+      --  The focus elsewhere than the selection, so the answers cannot be
+      --  the focused item's.
+      Tree.Focused := 3;
 
       Root := A11ykit.UIA_Snapshots.Root_Node (Tree, Result);
       A11ykit.UIA_Snapshots.Build_Snapshots (Tree, Root, Session, Bundle.all, Result);
@@ -9013,8 +9015,36 @@ begin
              "UIA SelectionItem.Select on a list item succeeds:" & Code'Image & " status "
              & Context.Last_Status'Image);
       Got_Request := A11y.Native_Requests.Pop (Asked);
-      Check (Got_Request and then Asked.Kind = A11y.Native_Requests.Activate,
-             "UIA SelectionItem.Select asks the application to select the item");
+      Check (Got_Request and then Asked.Kind = A11y.Native_Requests.Select_Item,
+             "UIA SelectionItem.Select asks the application to select the item, not to open it");
+
+      --  And whether an item is selected, as Narrator reads it: the selected
+      --  one says so, another does not.
+      declare
+         function Is_Selected (Item : Natural) return String is
+            Value : aliased Native.Native_UInt32 := 99;
+            Got   : Native.Native_UInt32;
+         begin
+            Callbacks.Ensure_Export (Context, Item, Provider, Object);
+            Frame := [others => 0];
+            Frame (0) := Native.Native_UInt64 (A11y.Native_Identity.To_Natural (Session));
+            Frame (1) := Provider;
+            Frame (2) := Object;
+            Frame (3) := 2;
+            Frame (4) := Native.Native_UInt64
+              (A11y.Windows_Backend.UIA_ABI_Surface.Method_Code
+                 (A11y.Windows_Backend.UIA_ABI_Surface.Selection_Item_Provider_Get_Is_Selected));
+            Got := Callbacks.Copy_Boolean_Callback (Frame (0)'Access, Value'Access, Context'Address);
+            if Got /= 0 then
+               return "error" & Got'Image & " " & Context.Last_Status'Image;
+            end if;
+            return (if Value /= 0 then "true" else "false");
+         end Is_Selected;
+      begin
+         Check (Is_Selected (4) = "true" and then Is_Selected (5) = "false" and then Is_Selected (3) = "false",
+                "UIA SelectionItem.IsSelected answers per item: "
+                & Is_Selected (4) & " " & Is_Selected (5) & " " & Is_Selected (3));
+      end;
    end;
 
    if Failures = 0 then

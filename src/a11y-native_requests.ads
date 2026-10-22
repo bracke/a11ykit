@@ -1,12 +1,13 @@
 with A11y.Node_Ids;
 
 --  What a screen reader asked the application to do: activate an object (an
---  invoke, a press) or move the focus to it. The Windows and macOS providers
+--  invoke, a press), move the focus to it, or select it -- which is not an
+--  activation: selecting a file must not open it. The Windows and macOS providers
 --  record a request they have accepted; the application takes the requests
 --  from its event loop and carries them out, since only it can.
 package A11y.Native_Requests is
 
-   type Request_Kind is (Activate, Focus);
+   type Request_Kind is (Activate, Focus, Select_Item);
 
    type Request is record
       Kind : Request_Kind := Activate;
