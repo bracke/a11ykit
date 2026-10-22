@@ -1,9 +1,13 @@
+with Ada.Strings.Unbounded;
+with Ada.Text_IO;
 with System;
 with Ada.Unchecked_Deallocation;
 
 with A11ykit.Compatibility;
 with A11ykit.UIA_Snapshots;
 with A11ykit.Provider_Runtime;
+
+with Hostkit.Process;
 
 with A11y.Events;
 with A11y.Native_Identity;
@@ -356,8 +360,25 @@ package body A11ykit.Provider is
       end loop;
    end Attach_Further_Windows;
 
-   --  Raise Event_Id (or, with Structure, a children-changed event) on the
-   --  tree's node Node, in its window's fragment.
+   --  A11YKIT_TRACE set in the environment reports, on standard error, each
+   --  event raised and what UI Automation answered -- the question a client
+   --  that hears nothing leaves.
+   function Trace_Requested return Boolean is
+      Value : Ada.Strings.Unbounded.Unbounded_String;
+   begin
+      return Hostkit.Process.Environment_Value ("A11YKIT_TRACE", Value)
+        and then Ada.Strings.Unbounded.Length (Value) /= 0;
+   end Trace_Requested;
+
+   Tracing : constant Boolean := Trace_Requested;
+
+   procedure Trace (Message : String) is
+   begin
+      if Tracing then
+         Ada.Text_IO.Put_Line (Ada.Text_IO.Standard_Error, "a11ykit: " & Message);
+      end if;
+   end Trace;
+
    --  The first selected item or row of a tree, by its node number; 0 when
    --  nothing is selected.
    function First_Selected (Tree : A11ykit.Tree.Accessibility_Tree) return Natural is
@@ -373,23 +394,31 @@ package body A11ykit.Provider is
       return 0;
    end First_Selected;
 
+   --  Raise Event_Id (or, with Structure, a children-changed event) on the
+   --  tree's node Node, in its window's fragment.
    procedure Raise_On (Node : Natural; Event_Id : Native.Native_UInt32; Structure : Boolean := False) is
       Window   : Natural;
       Root_P, Root_O, Provider, Object : Native.Native_UInt64;
-      Ignored  : Native.Native_HResult;
+      Answer   : Native.Native_HResult;
+      What     : constant String := (if Structure then "structure" else Event_Id'Image) & " on node" & Node'Image;
    begin
       if Provider_Host = System.Null_Address
         or else Node not in Callback_Context.Window_Of'Range
       then
+         Trace ("no event " & What & ": no host, or the node is outside the export table");
          return;
       end if;
       Window := Callback_Context.Window_Of (Node);
       Callbacks.Ensure_Export (Callback_Context, (if Window = 0 then Node else Window), Root_P, Root_O);
       Callbacks.Ensure_Export (Callback_Context, Node, Provider, Object);
       if Provider /= 0 then
-         Ignored :=
+         Answer :=
            Native.Raise_Element_Event
              (Provider_Host, Root_P, Provider, Object, Event_Id, (if Structure then 1 else 0));
+         Trace ("event " & What & " in window node" & Window'Image & " root provider" & Root_P'Image
+                & ": HRESULT" & Answer'Image);
+      else
+         Trace ("no event " & What & ": the node has no provider");
       end if;
    end Raise_On;
 
@@ -531,6 +560,9 @@ package body A11ykit.Provider is
          declare
             Selected : constant Natural := First_Selected (Last_Tree);
          begin
+            if Selected /= Last_Selected then
+               Trace ("selection moved from node" & Last_Selected'Image & " to" & Selected'Image);
+            end if;
             if Selected /= 0 and then Selected /= Last_Selected then
                Raise_On (Selected, 20_012);
                Delivered := Delivered + 1;
@@ -544,6 +576,7 @@ package body A11ykit.Provider is
          return;
       end if;
 
+      Trace ("publishing a new provider" & (if Published then " in place of the last" else ""));
       Stop;
       Reset_Snapshots;
       Session := A11y.Native_Identity.Create_Session;
