@@ -10,6 +10,8 @@
 #if defined(__APPLE__) && defined(__MACH__)
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
+#import <objc/message.h>
+#import <objc/runtime.h>
 #endif
 #include <limits.h>
 #include <stdint.h>
@@ -992,6 +994,19 @@ static NSString *a11y_nsax_element_key(unsigned long long session,
     }
     point_x = (long long)point.x;
     point_y = (long long)point.y;
+    /* The point is on the screen, in points from the bottom left; the tree is
+       in the window's pixels from the top left of its client area. */
+    if (a11y_attached_window != nil
+        && [a11y_attached_window isKindOfClass:[NSWindow class]]) {
+        NSWindow *window = (NSWindow *)a11y_attached_window;
+        NSRect content = [window contentRectForFrameRect:[window frame]];
+        CGFloat scale = [window backingScaleFactor];
+        if (scale <= 0.0) {
+            scale = 1.0;
+        }
+        point_x = (long long)((point.x - content.origin.x) * scale);
+        point_y = (long long)((content.origin.y + content.size.height - point.y) * scale);
+    }
     [self a11yDispatchSelector:A11Y_NSAX_SELECTOR_HIT_TEST];
     NSArray *items =
         [self a11yCopyObjectsForSelector:A11Y_NSAX_SELECTOR_HIT_TEST
@@ -1081,6 +1096,49 @@ static NSString *a11y_nsax_element_key(unsigned long long session,
     [super dealloc];
 }
 
+/* A window's content view is the toolkit's own and answers a hit test with
+   itself, so the screen reader never reaches the tree shown in it. Give
+   that one view a subclass of its class -- made once per class at run time,
+   as key-value observing does -- whose hit test asks the tree first. */
+static char a11y_nsax_hosted_root_key;
+
+static id a11y_nsax_hosted_hit_test(id self, SEL command, NSPoint point) {
+    id root = objc_getAssociatedObject(self, &a11y_nsax_hosted_root_key);
+    struct objc_super parent;
+    if (root != nil) {
+        id hit = [root accessibilityHitTest:point];
+        if (hit != nil) {
+            return hit;
+        }
+    }
+    parent.receiver = self;
+    parent.super_class = class_getSuperclass(object_getClass(self));
+    return ((id (*)(struct objc_super *, SEL, NSPoint))objc_msgSendSuper)(&parent, command, point);
+}
+
+static void a11y_nsax_host_hit_tests(NSView *view, id root) {
+    Class current = object_getClass(view);
+    NSString *name;
+    Class hosted;
+
+    objc_setAssociatedObject(view, &a11y_nsax_hosted_root_key, root, OBJC_ASSOCIATION_ASSIGN);
+    if ([NSStringFromClass(current) hasPrefix:@"A11yKitHosted_"]) {
+        return;
+    }
+    name = [@"A11yKitHosted_" stringByAppendingString:NSStringFromClass(current)];
+    hosted = NSClassFromString(name);
+    if (hosted == Nil) {
+        hosted = objc_allocateClassPair(current, [name UTF8String], 0);
+        if (hosted == Nil) {
+            return;
+        }
+        class_addMethod(hosted, @selector(accessibilityHitTest:),
+                        (IMP)a11y_nsax_hosted_hit_test, "@@:{CGPoint=dd}");
+        objc_registerClassPair(hosted);
+    }
+    object_setClass(view, hosted);
+}
+
 /* Show the root in Window, the application's own, in place of the bridge's
    window: as a child of its content view, which is where a screen reader
    looks. */
@@ -1091,6 +1149,7 @@ static NSString *a11y_nsax_element_key(unsigned long long session,
     }
     [a11y_root a11yAttachToParent:content window:window];
     [content setAccessibilityChildren:[NSArray arrayWithObject:a11y_root]];
+    a11y_nsax_host_hit_tests(content, a11y_root);
     [a11y_window orderOut:nil];
     return 1;
 }
@@ -1109,6 +1168,7 @@ static NSString *a11y_nsax_element_key(unsigned long long session,
     }
     [element a11yAttachToParent:content window:window];
     [content setAccessibilityChildren:[NSArray arrayWithObject:element]];
+    a11y_nsax_host_hit_tests(content, element);
     return 1;
 }
 

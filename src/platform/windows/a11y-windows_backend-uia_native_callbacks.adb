@@ -1599,7 +1599,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
         or else View.Registry = null
         or else View.Object_Table = null
         or else View.Snapshots = null
-        or else Direction > 5
+        or else Direction > 6
       then
          return 16#8007_0057#;
       end if;
@@ -1630,12 +1630,49 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
                     Step (Target, (if Direction = 3 then Fragments.Next_Sibling else Fragments.Previous_Sibling));
                end loop;
             end if;
-         when others =>
+         when 5 =>
             --  The focused element, if it is in the asking element's window.
             Target := View.Snapshots.Fragment.Focused_Node;
             if A11y.Node_Ids.Is_Valid (Target) and then Window_Of (Target) /= Window_Of (Node) then
                Target := A11y.Node_Ids.No_Node;
             end if;
+         when others =>
+            --  The element at the point Frame carries, in the window's client
+            --  coordinates: the smallest of the window's elements holding it.
+            declare
+               function Signed (Value : Native.Native_UInt64) return Long_Long_Integer is
+                 (if Value > Native.Native_UInt64 (Long_Long_Integer'Last)
+                  then Long_Long_Integer (Value - Native.Native_UInt64 (Long_Long_Integer'Last) - 1)
+                       - Long_Long_Integer'Last - 1
+                  else Long_Long_Integer (Value));
+               X : constant Long_Long_Integer := Signed (Frame_View (3));
+               Y : constant Long_Long_Integer := Signed (Frame_View (4));
+               Window : constant Natural := Window_Of (Node);
+               Best_Area : Long_Long_Integer := Long_Long_Integer'Last;
+            begin
+               for Index in View.Window_Of'Range loop
+                  --  The table covers the tree's nodes, 1 .. N, and no more.
+                  exit when View.Window_Of (Index) = 0;
+                  if View.Window_Of (Index) = Window and then Window /= 0 then
+                     declare
+                        Box : constant A11y.Geometry.Rectangle := View.Snapshots.Fragment.Bounds (Index);
+                        Left : constant Long_Long_Integer := Long_Long_Integer (Box.Origin.X);
+                        Top  : constant Long_Long_Integer := Long_Long_Integer (Box.Origin.Y);
+                        W    : constant Long_Long_Integer := Long_Long_Integer (Box.Extent.Width);
+                        H    : constant Long_Long_Integer := Long_Long_Integer (Box.Extent.Height);
+                     begin
+                        if W > 0 and then H > 0
+                          and then X >= Left and then X < Left + W
+                          and then Y >= Top and then Y < Top + H
+                          and then W * H < Best_Area
+                        then
+                           Best_Area := W * H;
+                           Target := A11y.Node_Ids.From_Natural (Index);
+                        end if;
+                     end;
+                  end if;
+               end loop;
+            end;
       end case;
 
       if A11y.Node_Ids.Is_Valid (Target) then

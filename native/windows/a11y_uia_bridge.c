@@ -3400,6 +3400,39 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_root_from_point(
             ? &provider->report->root_from_point_callback_called : 0,
         provider != 0 && provider->report != 0
             ? &provider->report->root_from_point_callback_succeeded : 0);
+    if (SUCCEEDED(hr) && provider != 0 && provider->navigation_callback != 0) {
+        /* The element at the point, asked of the tree (direction 6) in the
+           window's client coordinates; none means the fragment root. */
+        uint64_t frame[5];
+        uint64_t target_provider = 0;
+        uint64_t target_object = 0;
+        struct a11y_uia_callback_provider *target;
+        POINT point;
+
+        point.x = (LONG)x;
+        point.y = (LONG)y;
+        if (provider->host_hwnd != 0) {
+            ScreenToClient(provider->host_hwnd, &point);
+        }
+        frame[0] = provider->session;
+        frame[1] = provider->provider;
+        frame[2] = provider->object_token;
+        frame[3] = (uint64_t)(int64_t)point.x;
+        frame[4] = (uint64_t)(int64_t)point.y;
+        hr = (HRESULT)provider->navigation_callback(
+            frame, 6u, &target_provider, &target_object, provider->callback_context);
+        if (SUCCEEDED(hr) && target_provider != 0) {
+            target = a11y_uia_callback_element_for(provider, target_provider, target_object);
+            if (target == 0) {
+                return E_OUTOFMEMORY;
+            }
+            *result = (IRawElementProviderFragment *)target->fragment_iface;
+            return S_OK;
+        }
+        if (FAILED(hr)) {
+            return hr;
+        }
+    }
     if (SUCCEEDED(hr) && provider != 0 && provider->fragment_iface != 0) {
         *result = (IRawElementProviderFragment *)provider->fragment_iface;
         IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)provider);

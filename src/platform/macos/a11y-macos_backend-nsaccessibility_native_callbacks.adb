@@ -14,7 +14,6 @@ with A11y.Native_Requests;
 with A11y.Node_Ids;
 with A11y.Relations;
 with A11y.Semantic_Snapshots;
-with A11y.Trees;
 
 package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
 
@@ -639,6 +638,46 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
         ((X => A11y.Geometry.Coordinate (Point_X),
           Y => A11y.Geometry.Coordinate (Point_Y)));
 
+      --  With the tree's windows known, the element at the point is the
+      --  smallest of the asking element's window's own that holds it: the
+      --  windows' client coordinates overlap, and the tree hangs every
+      --  further window under the first.
+      function Window_Hit_Test return A11y.Node_Ids.Node_Id is
+         Asking : constant Natural := A11y.Node_Ids.To_Natural (View.Snapshots.Hierarchy.Node);
+         Window : constant Natural :=
+           (if Asking in View.Window_Of'Range then View.Window_Of (Asking) else 0);
+         X : constant Long_Long_Integer := Long_Long_Integer (Point_X);
+         Y : constant Long_Long_Integer := Long_Long_Integer (Point_Y);
+         Best_Area : Long_Long_Integer := Long_Long_Integer'Last;
+         Best : A11y.Node_Ids.Node_Id := A11y.Node_Ids.No_Node;
+      begin
+         if Window = 0 then
+            return A11y.Node_Ids.No_Node;
+         end if;
+         for Index in View.Window_Of'Range loop
+            exit when View.Window_Of (Index) = 0;
+            if View.Window_Of (Index) = Window then
+               declare
+                  Box  : constant A11y.Geometry.Rectangle := View.Snapshots.Hierarchy.Bounds (Index);
+                  Left : constant Long_Long_Integer := Long_Long_Integer (Box.Origin.X);
+                  Top  : constant Long_Long_Integer := Long_Long_Integer (Box.Origin.Y);
+                  W    : constant Long_Long_Integer := Long_Long_Integer (Box.Extent.Width);
+                  H    : constant Long_Long_Integer := Long_Long_Integer (Box.Extent.Height);
+               begin
+                  if W > 0 and then H > 0
+                    and then X >= Left and then X < Left + W
+                    and then Y >= Top and then Y < Top + H
+                    and then W * H < Best_Area
+                  then
+                     Best_Area := W * H;
+                     Best := A11y.Node_Ids.From_Natural (Index);
+                  end if;
+               end;
+            end if;
+         end loop;
+         return Best;
+      end Window_Hit_Test;
+
       function Add_Hit_Test_Node return Boolean is
          Reply : constant
            A11y.MacOS_Backend.NSAccessibility_Hierarchy.Node_Reply :=
@@ -647,6 +686,13 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
                 Hit_Test_Point,
                 View.Snapshots.Limits);
       begin
+         if View.Window_Of (View.Window_Of'First) /= 0 then
+            declare
+               Hit : constant A11y.Node_Ids.Node_Id := Window_Hit_Test;
+            begin
+               return (if A11y.Node_Ids.Is_Valid (Hit) then Add_Node (Hit) else True);
+            end;
+         end if;
          if Reply.Found then
             return Add_Node (Reply.Node);
          elsif Reply.Status = A11y.Results.Success then

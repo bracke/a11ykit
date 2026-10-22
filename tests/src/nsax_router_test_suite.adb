@@ -8420,6 +8420,28 @@ begin
       Check
         (Index (Titles, "first.txt") > 0,
          "macOS children answer their names: " & To_String (Titles));
+
+      --  Pointing: a point inside the first item, in the window's pixels,
+      --  is answered by that item.
+      for Node in 1 .. 4 loop
+         Context.Window_Of (Node) := 1;
+      end loop;
+      Object_Count := 0;
+      Check
+        (Callbacks.Copy_Object_Callback
+           (Native.Native_UInt64 (A11y.Native_Identity.To_Natural (Session)),
+            Native.Native_UInt64 (A11y.Node_Ids.To_Natural (Root)),
+            ABI.Selector_Code (ABI.Accessibility_Hit_Test),
+            0, 10, 25,
+            Objects'Address,
+            Native.Native_UInt64 (Objects'Length),
+            Object_Count'Access,
+            Context'Address) /= Native.Native_Status (0)
+         and then Object_Count = 1
+         and then Copy_Value
+           (Objects (0), ABI.Attribute_Code (A11y.MacOS_Backend.NSAccessibility_Properties.Title))
+         and then UTF8 (1 .. Natural (UTF8_Used)) = "first.txt",
+         "macOS pointing finds the item under the point");
    end;
 
    if Failures = 0 then

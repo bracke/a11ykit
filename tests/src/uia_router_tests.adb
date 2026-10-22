@@ -8826,6 +8826,41 @@ begin
       Check (Go (3, 5) = 4 and then Go (1, 5) = 0,
              "UIA focus is answered by the window that holds it");
 
+      --  Pointing: the element at a point is the smallest of the asking
+      --  window's own that holds it -- the second window's button, not the
+      --  first's, though their client coordinates overlap.
+      declare
+         function At_Point (Node : Natural; X, Y : Integer) return Natural is
+            Provider, Object : Interfaces.Unsigned_64;
+         begin
+            Callbacks.Ensure_Export (Context, Node, Provider, Object);
+            Frame := [others => 0];
+            Frame (0) := Native.Native_UInt64 (A11y.Native_Identity.To_Natural (Session));
+            Frame (1) := Provider;
+            Frame (2) := Object;
+            Frame (3) := Native.Native_UInt64 (X);
+            Frame (4) := Native.Native_UInt64 (Y);
+            if Callbacks.Navigation_Callback
+                 (Frame (0)'Access, 6, Target_Provider'Access, Target_Object'Access, Context'Address) /= 0
+              or else Target_Provider = 0
+            then
+               return 0;
+            end if;
+            for Index in Context.Exports'Range loop
+               if Context.Exports (Index).Provider = Target_Provider then
+                  return Index;
+               end if;
+            end loop;
+            return 0;
+         end At_Point;
+      begin
+         Check (At_Point (1, 20, 15) = 2 and then At_Point (1, 200, 150) = 1
+                and then At_Point (3, 420, 15) = 4 and then At_Point (3, 20, 15) = 0,
+                "UIA pointing finds the element under the point, in the asking window:"
+                & At_Point (1, 20, 15)'Image & At_Point (1, 200, 150)'Image
+                & At_Point (3, 420, 15)'Image & At_Point (3, 20, 15)'Image);
+      end;
+
       --  A client asks each element what it is: the button says Button.
       declare
          Kind : aliased Native.Native_UInt32 := 0;
