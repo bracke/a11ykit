@@ -7,6 +7,7 @@
 
 with Ada.Command_Line;
 with Ada.Strings.Unbounded;
+with Ada.Text_IO;
 
 with A11ykit;
 with A11ykit.Provider;
@@ -68,6 +69,9 @@ procedure Focus_Walk_Demo is
 begin
    A11ykit.Provider.Start;
    A11ykit.Provider.Publish (Window (0));
+   Ada.Text_IO.Put_Line
+     ("published through " & A11ykit.Provider.Last_Publish_Backend_Name
+      & (if A11ykit.Provider.Last_Publish_Used_Fallback then " (fallback)" else ""));
    A11ykit.Provider.Set_Active (True);
    Serve_For (Pause);
    for Index in Names'Range loop

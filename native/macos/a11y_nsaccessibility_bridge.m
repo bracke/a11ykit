@@ -1176,6 +1176,15 @@ void *a11y_nsax_install_process_root(
         }
 
         [NSApplication sharedApplication];
+        /* An accessibility client can talk only to a process that has
+           finished launching as an application. A windowing toolkit does
+           that itself; a program without one has not, so do it here. */
+        if (![[NSRunningApplication currentApplication] isFinishedLaunching]) {
+            if ([NSApp activationPolicy] == NSApplicationActivationPolicyProhibited) {
+                [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+            }
+            [NSApp finishLaunching];
+        }
         root = [[A11yNSAXElement alloc] initWithSession:session
                                                    node:node
                                                callback:callback
