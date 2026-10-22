@@ -549,6 +549,8 @@ static NSString *a11y_nsax_role_name(unsigned int role) {
             return @"AXHelpTag";
         case 32u:
             return @"AXDocument";
+        case 33u:
+            return @"AXColumn";
         default:
             return @"AXUnknown";
     }

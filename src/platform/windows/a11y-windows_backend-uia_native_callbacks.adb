@@ -267,6 +267,8 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
            when A11y.Windows_Backend.UIA_Mappings.Tree => 50_023,
            when A11y.Windows_Backend.UIA_Mappings.Tree_Item => 50_024,
            when A11y.Windows_Backend.UIA_Mappings.Custom => 50_025,
+           when A11y.Windows_Backend.UIA_Mappings.Data_Item => 50_029,
+           when A11y.Windows_Backend.UIA_Mappings.Header_Item => 50_035,
            when A11y.Windows_Backend.UIA_Mappings.Window => 50_032,
            when A11y.Windows_Backend.UIA_Mappings.Pane => 50_033,
            when A11y.Windows_Backend.UIA_Mappings.Table => 50_036,

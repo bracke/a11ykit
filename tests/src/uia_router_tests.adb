@@ -4948,15 +4948,19 @@ begin
       = A11y.Windows_Backend.UIA_Mappings.Pane,
       "Windows UIA mapper explicitly maps application role");
 
+   Check
+     (A11y.Windows_Backend.UIA_Mappings.Map_Role (A11y.Roles.Row)
+      = A11y.Windows_Backend.UIA_Mappings.Data_Item
+      and then A11y.Windows_Backend.UIA_Mappings.Map_Role (A11y.Roles.Column)
+      = A11y.Windows_Backend.UIA_Mappings.Header_Item,
+      "Windows UIA mapper answers table rows and columns as data and header items");
+
    for Role in A11y.Roles.Role loop
       declare
          Mapped : constant A11y.Windows_Backend.UIA_Mappings.UIA_Control_Type :=
            A11y.Windows_Backend.UIA_Mappings.Map_Role (Role);
          Expected_Custom : constant Boolean :=
-           Role in A11y.Roles.Row |
-                   A11y.Roles.Column |
-                   A11y.Roles.Cell |
-                   A11y.Roles.Custom;
+           Role in A11y.Roles.Cell | A11y.Roles.Custom;
       begin
          Check
            ((Mapped /= A11y.Windows_Backend.UIA_Mappings.Custom)

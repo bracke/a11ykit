@@ -38,9 +38,11 @@ package body A11y.Windows_Backend.UIA_Mappings is
              A11y.Roles.Region |
              A11y.Roles.Document |
              A11y.Roles.Canvas => Pane,
-        when A11y.Roles.Row |
-             A11y.Roles.Column |
-             A11y.Roles.Cell |
+        --  As WPF's data grid answers: a row is a data item, a column its
+        --  header item, and a cell stays custom.
+        when A11y.Roles.Row => Data_Item,
+        when A11y.Roles.Column => Header_Item,
+        when A11y.Roles.Cell |
              A11y.Roles.Custom => Custom);
 
    function Map_States (States : A11y.States.State_Set) return UIA_Property_Set is

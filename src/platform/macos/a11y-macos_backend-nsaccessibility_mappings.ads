@@ -37,6 +37,7 @@ package A11y.MacOS_Backend.NSAccessibility_Mappings is
       Value_Indicator,
       Help_Tag,
       Document,
+      Column,
       Unknown);
 
    type NSAX_State is

@@ -5213,6 +5213,15 @@ begin
       = A11y.MacOS_Backend.NSAccessibility_Mappings.Unsupported_Relation,
       "macOS NSAccessibility mapper classifies neutral relation kinds");
 
+   Check
+     (A11y.MacOS_Backend.NSAccessibility_Mappings.Map_Role (A11y.Roles.Column)
+      = A11y.MacOS_Backend.NSAccessibility_Mappings.Column
+      and then A11y.MacOS_Backend.NSAccessibility_Mappings.Map_Role (A11y.Roles.Tab)
+      = A11y.MacOS_Backend.NSAccessibility_Mappings.Radio_Button
+      and then A11y.MacOS_Backend.NSAccessibility_Mappings.Map_Role (A11y.Roles.Status)
+      = A11y.MacOS_Backend.NSAccessibility_Mappings.Group,
+      "macOS NSAccessibility mapper answers columns, tabs and status as AppKit does");
+
    for Role in A11y.Roles.Role loop
       declare
          Mapped : constant

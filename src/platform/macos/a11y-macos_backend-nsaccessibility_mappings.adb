@@ -15,8 +15,11 @@ package body A11y.MacOS_Backend.NSAccessibility_Mappings is
         when A11y.Roles.Row | A11y.Roles.List_Item | A11y.Roles.Tree_Item => Row,
         when A11y.Roles.Tree => Outline,
         when A11y.Roles.Table => Table,
-        when A11y.Roles.Cell | A11y.Roles.Column => Cell,
-        when A11y.Roles.Tab_List | A11y.Roles.Tab => Tab_Group,
+        when A11y.Roles.Cell => Cell,
+        when A11y.Roles.Column => Column,
+        --  AppKit's tabs are radio buttons inside the tab group.
+        when A11y.Roles.Tab_List => Tab_Group,
+        when A11y.Roles.Tab => Radio_Button,
         when A11y.Roles.Menu_Bar => Menu_Bar,
         when A11y.Roles.Menu => Menu,
         when A11y.Roles.Menu_Item => Menu_Item,
@@ -33,7 +36,9 @@ package body A11y.MacOS_Backend.NSAccessibility_Mappings is
         when A11y.Roles.Link => Link,
         when A11y.Roles.Image => Image,
         when A11y.Roles.Separator => Splitter,
-        when A11y.Roles.Status => Value_Indicator,
+        --  AXValueIndicator is a scroll bar's knob; a status line is a group,
+        --  as browsers answer for a status region.
+        when A11y.Roles.Status => Group,
         when A11y.Roles.Tooltip => Help_Tag,
         when A11y.Roles.Document | A11y.Roles.Canvas => Document,
         when A11y.Roles.Custom => Unknown);

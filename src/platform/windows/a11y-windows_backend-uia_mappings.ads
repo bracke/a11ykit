@@ -7,6 +7,8 @@ package A11y.Windows_Backend.UIA_Mappings is
    type UIA_Control_Type is
      (Custom,
       Button,
+      Data_Item,
+      Header_Item,
       Check_Box,
       Combo_Box,
       Edit,
