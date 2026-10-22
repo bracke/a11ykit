@@ -2,23 +2,15 @@ with System;
 with Ada.Unchecked_Deallocation;
 
 with A11ykit.Compatibility;
+with A11ykit.UIA_Snapshots;
 with A11ykit.Provider_Runtime;
 
-with A11y.Actions;
-with A11y.Capabilities;
 with A11y.Events;
-with A11y.Geometry;
 with A11y.Native_Identity;
 with A11y.Node_Ids;
 with A11y.Platforms;
-with A11y.Properties;
 with A11y.Results;
-with A11y.Roles;
-with A11y.Selection;
-with A11y.Semantic_Snapshots;
 with A11y.Sessions;
-with A11y.States;
-with A11y.Trees;
 with A11y.Windows_Backend.UIA_ABI_Surface;
 with A11y.Windows_Backend.UIA_COM_Object_Exports;
 with A11y.Windows_Backend.UIA_Events;
@@ -43,7 +35,6 @@ package body A11ykit.Provider is
      (Router.Snapshot_Bundle, Snapshot_Access);
 
    use type A11y.Results.Status_Code;
-   use type A11y.Properties.Property_Status;
    use type A11y.Native_Identity.Backend_Session_Id;
    use type Native.Native_UInt32;
    use type Native.Native_HResult;
@@ -64,6 +55,15 @@ package body A11ykit.Provider is
      Registry_API.No_Provider;
    Exported_Object : Exports.COM_Object_Token := Exports.No_COM_Object;
    Provider_Host : System.Address := System.Null_Address;
+
+   --  The application's window the provider answers through, once it has
+   --  said which (Attach_Window); null until then.
+   Attached_Window : System.Address := System.Null_Address;
+
+   --  The root the host was exported for and the focus last announced, so a
+   --  republish of the same window keeps its host and says only what moved.
+   Published_Root : A11y.Node_Ids.Node_Id := A11y.Node_Ids.No_Node;
+   Last_Focus     : A11y.Node_Ids.Node_Id := A11y.Node_Ids.No_Node;
 
    function Method (Item : ABI.UIA_ABI_Method) return Native.Native_UInt32 is
      (Native.Native_UInt32 (ABI.Method_Code (Item)));
@@ -91,51 +91,7 @@ package body A11ykit.Provider is
      (Tree   : A11ykit.Tree.Accessibility_Tree;
       Result : out A11y.Results.Result)
       return A11y.Node_Ids.Node_Id
-   is
-   begin
-      Result := A11y.Results.Ok;
-      if Tree.Nodes.Is_Empty then
-         Result := (Status => A11y.Results.Invalid_State);
-         return A11y.Node_Ids.No_Node;
-      end if;
-
-      for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
-         if Tree.Nodes (Index).Parent = 0 then
-            return A11ykit.Compatibility.Node_Id_For_Index (Tree, Index);
-         end if;
-      end loop;
-
-      Result := (Status => A11y.Results.Invalid_State);
-      return A11y.Node_Ids.No_Node;
-   end Root_Node;
-
-   procedure Add_Default_Actions
-     (Metadata : A11y.Semantic_Snapshots.Node_Metadata;
-      Actions  : in out A11y.Actions.Action_Set)
-   is
-      use type A11y.Roles.Role;
-   begin
-      Actions := A11y.Actions.Empty_Action_Set;
-      if Metadata.Capabilities (A11y.Capabilities.Action) then
-         Actions (A11y.Actions.Activate) := True;
-         Actions (A11y.Actions.Press) := True;
-      end if;
-
-      if Metadata.States (A11y.States.Focusable) then
-         Actions (A11y.Actions.Set_Focus) := True;
-      end if;
-
-      if Metadata.States (A11y.States.Expandable) then
-         Actions (A11y.Actions.Expand) := True;
-         Actions (A11y.Actions.Collapse) := True;
-      end if;
-
-      if Metadata.Role in A11y.Roles.Window | A11y.Roles.Dialog then
-         Actions (A11y.Actions.Close) := True;
-      end if;
-
-      Actions (A11y.Actions.Scroll_Into_View) := True;
-   end Add_Default_Actions;
+     renames A11ykit.UIA_Snapshots.Root_Node;
 
    procedure Build_Snapshots
      (Tree      : A11ykit.Tree.Accessibility_Tree;
@@ -143,120 +99,7 @@ package body A11ykit.Provider is
       Session   : A11y.Native_Identity.Backend_Session_Id;
       Snapshots : out Router.Snapshot_Bundle;
       Result    : out A11y.Results.Result)
-   is
-      Metadata : A11y.Semantic_Snapshots.Node_Metadata;
-      Check    : A11y.Results.Result;
-      Focused  : A11y.Node_Ids.Node_Id :=
-        A11ykit.Compatibility.Focused_Node (Tree);
-   begin
-      Snapshots.Properties.Nodes :=
-        A11ykit.Compatibility.To_Semantic_Snapshot (Tree, Result);
-      if A11y.Results.Failed (Result) then
-         return;
-      end if;
-
-      A11y.Trees.Set_Root (Snapshots.Properties.Tree, Root, Check);
-      if A11y.Results.Failed (Check) then
-         Result := Check;
-         return;
-      end if;
-
-      A11ykit.Compatibility.Attach_Parents_First (Tree, Snapshots.Properties.Tree, Check);
-      if A11y.Results.Failed (Check) then
-         Result := Check;
-         return;
-      end if;
-
-      for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
-         declare
-            Node : constant A11y.Node_Ids.Node_Id :=
-              A11ykit.Compatibility.Node_Id_For_Index (Tree, Index);
-         begin
-            Metadata :=
-              A11y.Semantic_Snapshots.Metadata
-                (Snapshots.Properties.Nodes, Node);
-            if Metadata.Present
-              and then A11y.Node_Ids.To_Natural (Node)
-                in Snapshots.Fragment.Bounds'Range
-              and then Metadata.Bounds.Status = A11y.Properties.Present
-            then
-               Snapshots.Fragment.Bounds
-                 (A11y.Node_Ids.To_Natural (Node)) := Metadata.Bounds.Value;
-            end if;
-         end;
-      end loop;
-
-      Metadata :=
-        A11y.Semantic_Snapshots.Metadata
-          (Snapshots.Properties.Nodes, Root);
-      if not Metadata.Present then
-         Result := (Status => A11y.Results.Node_Unavailable);
-         return;
-      end if;
-
-      if not A11y.Node_Ids.Is_Valid (Focused) then
-         Focused := Root;
-      end if;
-
-      Snapshots.Properties.Id := Root;
-      Snapshots.Properties.Root := Root;
-      Snapshots.Properties.Role := Metadata.Role;
-      Snapshots.Properties.States := Metadata.States;
-      Snapshots.Properties.Capabilities := Metadata.Capabilities;
-      Snapshots.Properties.Bounds :=
-        (if Metadata.Bounds.Status = A11y.Properties.Present
-         then Metadata.Bounds.Value
-         else A11y.Geometry.Empty_Rectangle);
-      Snapshots.Properties.Name := Metadata.Name;
-      Snapshots.Properties.Visible_Title := Metadata.Visible_Title;
-      Snapshots.Properties.Automation_Id := Metadata.Semantic_Identifier;
-      Snapshots.Properties.Description := Metadata.Description;
-      Snapshots.Properties.Value_Text := Metadata.Value_Text;
-      Snapshots.Properties.Protected_Value_Text :=
-        Metadata.Protected_Value_Text;
-      Snapshots.Properties.Help_Text := Metadata.Help_Text;
-      Snapshots.Properties.Placeholder := Metadata.Placeholder;
-      Snapshots.Properties.Keyboard_Shortcut := Metadata.Keyboard_Shortcut;
-      Snapshots.Properties.Locale := Metadata.Locale;
-      Snapshots.Properties.Orientation := Metadata.Orientation;
-      Snapshots.Properties.Landmark := Metadata.Landmark;
-      Snapshots.Properties.Use_Tree_Projection := True;
-      Snapshots.Properties.Use_Node_Metadata := True;
-      Snapshots.Properties.Defunct := False;
-
-      Snapshots.Fragment.Session := Session;
-      Snapshots.Fragment.Fragment_Root := Root;
-      Snapshots.Fragment.Tree := Snapshots.Properties.Tree;
-      Snapshots.Fragment.Node := Root;
-      Snapshots.Fragment.Focused_Node := Focused;
-      Snapshots.Fragment.Hit_Test_Point := Snapshots.Properties.Bounds.Origin;
-
-      Add_Default_Actions (Metadata, Snapshots.Actions);
-      Snapshots.Action_Node := Root;
-      Snapshots.Action_Root := Root;
-      Snapshots.Action_Tree := Snapshots.Properties.Tree;
-      Snapshots.Action_Use_Tree_Projection := True;
-      Snapshots.Action_States := Metadata.States;
-
-      Snapshots.Relation_Source := Root;
-      Snapshots.Relation_Root := Root;
-      Snapshots.Relation_Tree := Snapshots.Properties.Tree;
-      Snapshots.Relation_Use_Tree_Projection := True;
-
-      Snapshots.Event_Root := Root;
-      Snapshots.Event_Tree := Snapshots.Properties.Tree;
-      Snapshots.Event_Use_Tree_Projection := True;
-
-      Snapshots.Selection.Root := Root;
-      Snapshots.Selection.Item := Focused;
-      A11y.Selection.Configure
-        (Snapshots.Selection.Selection, A11y.Selection.Single);
-
-      Result := A11y.Results.Ok;
-   exception
-      when others =>
-         Result := (Status => A11y.Results.Internal_Error);
-   end Build_Snapshots;
+     renames A11ykit.UIA_Snapshots.Build_Snapshots;
 
    procedure Reset_Snapshots is
       Previous : Snapshot_Access := Snapshots;
@@ -435,6 +278,22 @@ package body A11ykit.Provider is
       return Published;
    end Available;
 
+   procedure Attach_Host is
+      Ignored : Native.Native_UInt32;
+   begin
+      if Attached_Window /= System.Null_Address
+        and then Provider_Host /= System.Null_Address
+      then
+         Ignored := Native.Attach_Callback_Provider_Host_Window (Provider_Host, Attached_Window);
+      end if;
+   end Attach_Host;
+
+   procedure Attach_Window (Window : System.Address) is
+   begin
+      Attached_Window := Window;
+      Attach_Host;
+   end Attach_Window;
+
    procedure Start is
    begin
       null;
@@ -445,6 +304,9 @@ package body A11ykit.Provider is
       Object_Release : Exports.Object_Release_Report;
    begin
       Published := False;
+      Published_Root := A11y.Node_Ids.No_Node;
+      Last_Focus := A11y.Node_Ids.No_Node;
+      Callback_Context.Exports := [others => <>];
       if Provider_Host /= System.Null_Address then
          Native.Destroy_Callback_Provider_Host_Window (Provider_Host);
          Provider_Host := System.Null_Address;
@@ -506,6 +368,36 @@ package body A11ykit.Provider is
          return;
       end if;
 
+      --  The same window again: keep the session and host a screen reader is
+      --  holding on to, swap the snapshot it reads from, and announce a
+      --  moved focus. Starting over would hand it a new provider each time.
+      if Published and then A11y.Node_Ids."=" (Root, Published_Root) then
+         Reset_Snapshots;
+         Build_Snapshots (Tree, Root, Session, Snapshots.all, Result);
+         if A11y.Results.Failed (Result) then
+            Stop;
+            Free (Semantic);
+            A11ykit.Provider_Runtime.Publish (Tree);
+            return;
+         end if;
+
+         declare
+            Focus : constant A11y.Node_Ids.Node_Id := Snapshots.Fragment.Focused_Node;
+         begin
+            if not A11y.Node_Ids."=" (Focus, Last_Focus) then
+               Last_Focus := Focus;
+               if Native.Raise_Automation_Event (Provider_Host, 20_005) = 0 then
+                  Delivered := 1;
+               end if;
+            end if;
+         end;
+
+         Free (Semantic);
+         A11ykit.Provider_Runtime.Record_Publish_Result
+           (A11y.Results.Success, Delivered, Backend_Name, False, A11y.Results.Success);
+         return;
+      end if;
+
       Stop;
       Reset_Snapshots;
       Session := A11y.Native_Identity.Create_Session;
@@ -536,6 +428,20 @@ package body A11ykit.Provider is
       Exported_Object := Export_Report.Object_Export.Token;
       Provider_Host := Create_Callback_Host;
       Published := Provider_Host /= System.Null_Address;
+      if Published then
+         Published_Root := Root;
+         Last_Focus := Snapshots.Fragment.Focused_Node;
+         --  Navigation back to the root names the root's own provider.
+         Callback_Context.Exports := [others => <>];
+         if A11y.Node_Ids.To_Natural (Root) in Callback_Context.Exports'Range then
+            Callback_Context.Exports (A11y.Node_Ids.To_Natural (Root)) :=
+              (Provider => Native.Native_UInt64 (Registry_API.To_Natural (Exported_Provider)),
+               Object   => Native.Native_UInt64 (Exports.To_Natural (Exported_Object)));
+         end if;
+         Native.Set_Callback_Provider_Host_Navigation
+           (Provider_Host, Callbacks.Navigation_Callback'Access);
+         Attach_Host;
+      end if;
       if not Published then
          Stop;
          Free (Semantic);

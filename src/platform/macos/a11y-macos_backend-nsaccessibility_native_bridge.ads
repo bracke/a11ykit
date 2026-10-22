@@ -250,6 +250,15 @@ package A11y.MacOS_Backend.NSAccessibility_Native_Bridge is
       return Native_Status
    with Import, Convention => C, External_Name => "a11y_nsax_post_notification";
 
+   --  Show the process root Host's tree in the application's window Window
+   --  (an NSWindow); nonzero when it is shown there.
+   function Attach_Process_Root_To_Window
+     (Host   : System.Address;
+      Window : System.Address)
+      return Native_Status
+   with Import, Convention => C,
+        External_Name => "a11y_nsax_attach_process_root_to_window";
+
    function Post_Notification_For_Object
      (Object       : System.Address;
       Notification : Native_UInt32)

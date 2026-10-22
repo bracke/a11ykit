@@ -1,4 +1,7 @@
 with Ada.Calendar;
+with A11ykit;
+with A11ykit.Tree;
+with A11ykit.UIA_Snapshots;
 with Ada.Command_Line;
 with Ada.Exceptions;
 with Interfaces;
@@ -35,6 +38,7 @@ with A11y.Trees;
 with A11y.Values;
 with A11y.Windows;
 with A11y.Windows_Backend.UIA_ABI_Surface;
+with A11y.Windows_Backend.UIA_Public_Roots;
 with A11y.Windows_Backend.UIA_Com_Providers;
 with A11y.Windows_Backend.UIA_COM_Exports;
 with A11y.Windows_Backend.UIA_COM_Live_Exports;
@@ -8603,6 +8607,131 @@ begin
          and then not Invoke_Report.Request_Prepared
          and then not Invoke_Report.Registered_Dispatched,
          "Windows UIA COM export table rejects root-only methods before native dispatch");
+   end;
+
+   --  What a UI Automation client does with a published window: navigate
+   --  from the root to its first child, then along the siblings, asking each
+   --  for its name.
+   declare
+      use Ada.Strings.Unbounded;
+
+      package Native renames A11y.Windows_Backend.UIA_Native_Bridge;
+      package Callbacks renames A11y.Windows_Backend.UIA_Native_Callbacks;
+      package ABI renames A11y.Windows_Backend.UIA_ABI_Surface;
+
+      type Bundle_Access is access A11y.Windows_Backend.UIA_Request_Router.Snapshot_Bundle;
+      type Registry_Access is access A11y.Windows_Backend.UIA_Provider_Registry.Provider_Registry;
+      type Table_Access is access A11y.Windows_Backend.UIA_COM_Object_Exports.COM_Object_Export_Table;
+
+      Flat : A11ykit.Tree.Node_Vectors.Vector;
+      Tree : A11ykit.Tree.Accessibility_Tree;
+      Bundle : constant Bundle_Access := new A11y.Windows_Backend.UIA_Request_Router.Snapshot_Bundle;
+      Providers : constant Registry_Access := new A11y.Windows_Backend.UIA_Provider_Registry.Provider_Registry;
+      Objects : constant Table_Access := new A11y.Windows_Backend.UIA_COM_Object_Exports.COM_Object_Export_Table;
+      Session : constant A11y.Native_Identity.Backend_Session_Id := A11y.Native_Identity.Create_Session;
+      Root : A11y.Node_Ids.Node_Id;
+      Result : A11y.Results.Result;
+      Export : A11y.Windows_Backend.UIA_Public_Roots.Public_Root_Export_Report;
+      Context : aliased Callbacks.Callback_Context;
+      Frame : array (0 .. 7) of aliased Native.Native_UInt64 := [others => 0];
+      Target_Provider : aliased Native.Native_UInt64 := 0;
+      Target_Object : aliased Native.Native_UInt64 := 0;
+      Value_Kind : aliased Native.Native_UInt32 := 0;
+      UTF8 : String (1 .. 512) := [others => ' '];
+      UTF8_Used : aliased Native.Native_UInt32 := 0;
+      Names : Unbounded_String;
+      Steps : Natural := 0;
+
+      function Node (Role : A11ykit.Role; Name : String; Y, Height : Integer) return A11ykit.Tree.Node is
+        (Node_Role   => Role,
+         Bounds      => (X => 0, Y => Y, Width => 400, Height => Height),
+         Name        => To_Unbounded_String (Name),
+         Description => Null_Unbounded_String,
+         Node_State  => (others => <>),
+         Parent      => 0);
+
+      procedure Point_At (Provider, Object : Native.Native_UInt64) is
+      begin
+         Frame := [others => 0];
+         Frame (0) := Native.Native_UInt64 (A11y.Native_Identity.To_Natural (Session));
+         Frame (1) := Provider;
+         Frame (2) := Object;
+      end Point_At;
+
+      function Navigate (Direction : Native.Native_UInt32) return Boolean is
+        (Callbacks.Navigation_Callback
+           (Frame (0)'Access, Direction, Target_Provider'Access, Target_Object'Access, Context'Address) = 0
+         and then Target_Provider /= 0);
+
+      function Name_Of_Target return String is
+      begin
+         Point_At (Target_Provider, Target_Object);
+         Frame (3) := 2;
+         Frame (4) := Native.Native_UInt64 (ABI.Method_Code (ABI.Simple_Get_Property_Value));
+         if Callbacks.Copy_Property_Value_Callback
+              (Frame (0)'Access, 30_005, Value_Kind'Access, UTF8'Address,
+               Native.Native_UInt32 (UTF8'Length), UTF8_Used'Access, Context'Address) /= 0
+         then
+            return "?";
+         end if;
+         return UTF8 (1 .. Natural (UTF8_Used));
+      end Name_Of_Target;
+   begin
+      Flat.Append (Node (A11ykit.Role_Window, "Focus walk", 0, 300));
+      Flat.Append (Node (A11ykit.Role_List, "Files", 0, 300));
+      Flat.Append (Node (A11ykit.Role_List_Item, "first.txt", 20, 20));
+      Flat.Append (Node (A11ykit.Role_List_Item, "second.txt", 40, 20));
+      Tree := A11ykit.Tree.Build (Flat);
+
+      Root := A11ykit.UIA_Snapshots.Root_Node (Tree, Result);
+      A11ykit.UIA_Snapshots.Build_Snapshots (Tree, Root, Session, Bundle.all, Result);
+      Check (A11y.Results.Succeeded (Result), "UIA provider snapshot builds for a published window");
+      A11y.Windows_Backend.UIA_Public_Roots.Export_Public_Root
+        (Providers.all, Objects.all, Session, Root, Root, Export);
+      Check (Export.Status = A11y.Results.Success, "UIA provider exports the window's root");
+
+      Context.Registry := Providers.all'Unchecked_Access;
+      Context.Object_Table := Objects.all'Unchecked_Access;
+      Context.Snapshots := Bundle.all'Unchecked_Access;
+      Context.Exports (A11y.Node_Ids.To_Natural (Root)) :=
+        (Provider => Native.Native_UInt64 (A11y.Windows_Backend.UIA_Provider_Registry.To_Natural (Export.Provider)),
+         Object   => Native.Native_UInt64
+           (A11y.Windows_Backend.UIA_COM_Object_Exports.To_Natural (Export.Object_Export.Token)));
+
+      Point_At (Context.Exports (A11y.Node_Ids.To_Natural (Root)).Provider,
+                Context.Exports (A11y.Node_Ids.To_Natural (Root)).Object);
+      Point_At (Context.Exports (A11y.Node_Ids.To_Natural (Root)).Provider,
+                Context.Exports (A11y.Node_Ids.To_Natural (Root)).Object);
+      if Navigate (1) then
+         loop
+            Steps := Steps + 1;
+            declare
+               Provider : constant Native.Native_UInt64 := Target_Provider;
+               Object   : constant Native.Native_UInt64 := Target_Object;
+            begin
+               Append (Names, Name_Of_Target & ";");
+               --  Into the list, then along its items.
+               Point_At (Provider, Object);
+               exit when Steps > 8;
+               if not Navigate (1) then
+                  Point_At (Provider, Object);
+                  exit when not Navigate (3);
+               end if;
+            end;
+         end loop;
+      end if;
+      Check
+        (Index (Names, "Files") > 0 and then Index (Names, "first.txt") > 0 and then Index (Names, "second.txt") > 0,
+         "UIA navigation reaches the window's elements by name: " & To_String (Names));
+
+      --  The window and the list share their bounds, and the tie goes to
+      --  the window, so the items are the window's own children.
+      Point_At (Context.Exports (3).Provider, Context.Exports (3).Object);
+      Check
+        (Context.Exports (3).Provider /= 0
+         and then Navigate (0)
+         and then Name_Of_Target = "Focus walk",
+         "UIA navigation leads from an item back to its parent");
    end;
 
    if Failures = 0 then

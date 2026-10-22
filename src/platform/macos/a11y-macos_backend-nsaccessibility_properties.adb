@@ -381,9 +381,12 @@ package body A11y.MacOS_Backend.NSAccessibility_Properties is
                  A11y.MacOS_Backend.NSAccessibility_Mappings.Map_Role
                    (Effective_Role));
          when Title =>
+            --  A node without a visible title of its own is titled by its
+            --  name, as the root is; the snapshot's Title is the root's.
             return String_Result
               ((if Node_View.Visible_Title.Status = A11y.Properties.Present
                 then Node_View.Visible_Title
+                elsif Snapshot.Use_Node_Metadata then Node_View.Name
                 else Snapshot.Title),
                Limits);
          when Label =>

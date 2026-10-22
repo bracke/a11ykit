@@ -12,6 +12,7 @@ with A11y.Geometry;
 with A11y.Native_Identity;
 with A11y.Node_Ids;
 with A11y.Relations;
+with A11y.Semantic_Snapshots;
 with A11y.Trees;
 
 package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
@@ -127,6 +128,50 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
       end if;
    end Reset_Out_Parameters;
 
+   --  One snapshot answers for every node of the published tree: it reads
+   --  the metadata of the node its Id names. Before a request is dispatched,
+   --  point it at the node of the element the request came to, so a child is
+   --  answered as itself and not refused as "not the root".
+   procedure Retarget
+     (View         : Context_Conversions.Object_Pointer;
+      Session_Code : Native.Native_UInt64;
+      Element_Code : Native.Native_UInt64)
+   is
+      Registered : A11y.MacOS_Backend.NSAccessibility_Element_Registry.Element_Record_Snapshot;
+      Result     : A11y.Results.Result;
+      Node       : A11y.Node_Ids.Node_Id;
+   begin
+      if Session_Code = 0
+        or else Element_Code = 0
+        or else Session_Code > Native.Native_UInt64 (Natural'Last)
+        or else Element_Code > Native.Native_UInt64 (Natural'Last)
+        or else not View.Snapshots.Properties.Use_Node_Metadata
+      then
+         return;
+      end if;
+
+      A11y.MacOS_Backend.NSAccessibility_Element_Registry.Resolve_Element
+        (View.Registry.all,
+         A11y.Native_Identity.From_Natural (Natural (Session_Code)),
+         A11y.MacOS_Backend.NSAccessibility_Element_Registry.From_Natural (Natural (Element_Code)),
+         Registered,
+         Result);
+      if A11y.Results.Failed (Result) then
+         return;
+      end if;
+
+      Node := Registered.Element.Node;
+      if A11y.Semantic_Snapshots.Has_Node (View.Snapshots.Properties.Nodes, Node) then
+         View.Snapshots.Properties.Id := Node;
+         View.Snapshots.Hierarchy.Node := Node;
+         View.Snapshots.Action_Node := Node;
+         View.Snapshots.Relation_Source := Node;
+      end if;
+   exception
+      when others =>
+         null;
+   end Retarget;
+
    function Dispatch
      (Session  : Native.Native_UInt64;
       Node     : Native.Native_UInt64;
@@ -151,6 +196,7 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
          return False;
       end if;
 
+      Retarget (View, Session, Node);
       Reply :=
         ABI.Dispatch_Callback
           (View.Registry.all,

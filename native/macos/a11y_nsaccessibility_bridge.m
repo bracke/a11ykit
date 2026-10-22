@@ -564,7 +564,10 @@ static int32_t a11y_nsax_decode_i32(unsigned int value) {
     a11y_nsax_value_callback a11y_value_callback;
     a11y_nsax_object_callback a11y_object_callback;
     void *a11y_context;
+    id a11y_attached_parent;
+    id a11y_attached_window;
 }
+- (void)a11yAttachToParent:(id)parent window:(id)window;
 - (id)initWithSession:(unsigned long long)session
                  node:(unsigned long long)node
              callback:(a11y_nsax_callback)callback
@@ -594,6 +597,16 @@ static int32_t a11y_nsax_decode_i32(unsigned int value) {
 - (id)initWithFrame:(NSRect)frame root:(A11yNSAXElement *)root;
 @end
 
+/* One element object per node for a session's life. A client holds on to the
+   elements it was handed and asks them later; an element made afresh for
+   each reply is gone by then, and the client is left holding nothing. */
+static NSMutableDictionary *a11y_nsax_elements = nil;
+
+static NSString *a11y_nsax_element_key(unsigned long long session,
+                                       unsigned long long node) {
+    return [NSString stringWithFormat:@"%llu:%llu", session, node];
+}
+
 @interface A11yNSAXProcessRootHost : NSObject {
 @private
     NSWindow *a11y_window;
@@ -602,6 +615,7 @@ static int32_t a11y_nsax_decode_i32(unsigned int value) {
 }
 - (id)initWithRoot:(A11yNSAXElement *)root;
 - (int)a11yPostNotificationCode:(unsigned int)notification;
+- (int)a11yAttachToWindow:(NSWindow *)window;
 @end
 
 @implementation A11yNSAXElement
@@ -722,17 +736,40 @@ static int32_t a11y_nsax_decode_i32(unsigned int value) {
 }
 
 - (id)a11yCreateElementForNode:(unsigned long long)node {
+    NSString *key;
+    A11yNSAXElement *element;
+
     if (node == 0u || a11y_callback == 0) {
         return nil;
     }
 
-    return [[[A11yNSAXElement alloc] initWithSession:a11y_session
-                                                node:node
-                                            callback:a11y_callback
-                                       valueCallback:a11y_value_callback
-                                      objectCallback:a11y_object_callback
-                                             context:a11y_context]
-            autorelease];
+    if (a11y_nsax_elements == nil) {
+        a11y_nsax_elements = [[NSMutableDictionary alloc] init];
+    }
+    key = a11y_nsax_element_key(a11y_session, node);
+    element = [a11y_nsax_elements objectForKey:key];
+    if (element == nil) {
+        element = [[A11yNSAXElement alloc] initWithSession:a11y_session
+                                                      node:node
+                                                  callback:a11y_callback
+                                             valueCallback:a11y_value_callback
+                                            objectCallback:a11y_object_callback
+                                                   context:a11y_context];
+        if (element == nil) {
+            return nil;
+        }
+        [a11y_nsax_elements setObject:element forKey:key];
+        [element release];
+    }
+    return element;
+}
+
+/* The root of a tree shown in an application's window answers that window's
+   content view as its parent and the window as its window, which the tree
+   itself does not know. */
+- (void)a11yAttachToParent:(id)parent window:(id)window {
+    a11y_attached_parent = parent;
+    a11y_attached_window = window;
 }
 
 - (NSArray *)a11yCopyObjectsForSelector:(unsigned int)selector
@@ -799,7 +836,16 @@ static int32_t a11y_nsax_decode_i32(unsigned int value) {
 }
 
 - (id)accessibilityAttributeValue:(NSString *)attribute {
-    unsigned int operand = a11y_nsax_attribute_operand(attribute);
+    unsigned int operand;
+    if (a11y_attached_parent != nil && [attribute isEqualToString:@"AXParent"]) {
+        return a11y_attached_parent;
+    }
+    if (a11y_attached_window != nil
+        && ([attribute isEqualToString:@"AXWindow"]
+            || [attribute isEqualToString:@"AXTopLevelUIElement"])) {
+        return a11y_attached_window;
+    }
+    operand = a11y_nsax_attribute_operand(attribute);
     [self a11yDispatchSelector:A11Y_NSAX_SELECTOR_ATTRIBUTE_VALUE
                        operand:operand];
     if (operand >= 1000u) {
@@ -837,6 +883,9 @@ static int32_t a11y_nsax_decode_i32(unsigned int value) {
 }
 
 - (id)accessibilityParent {
+    if (a11y_attached_parent != nil) {
+        return a11y_attached_parent;
+    }
     [self a11yDispatchSelector:A11Y_NSAX_SELECTOR_PARENT];
     NSArray *items = [self a11yCopyObjectsForSelector:A11Y_NSAX_SELECTOR_PARENT
                                               operand:0u];
@@ -956,6 +1005,20 @@ static int32_t a11y_nsax_decode_i32(unsigned int value) {
     [a11y_view release];
     [a11y_root release];
     [super dealloc];
+}
+
+/* Show the root in Window, the application's own, in place of the bridge's
+   window: as a child of its content view, which is where a screen reader
+   looks. */
+- (int)a11yAttachToWindow:(NSWindow *)window {
+    NSView *content = [window contentView];
+    if (content == nil || a11y_root == nil) {
+        return 0;
+    }
+    [a11y_root a11yAttachToParent:content window:window];
+    [content setAccessibilityChildren:[NSArray arrayWithObject:a11y_root]];
+    [a11y_window orderOut:nil];
+    return 1;
 }
 
 - (int)a11yPostNotificationCode:(unsigned int)notification {
@@ -1194,6 +1257,13 @@ void *a11y_nsax_install_process_root(
         if (root == nil) {
             return 0;
         }
+        /* A new process root starts a new session: drop the old one's
+           elements, and let the root be the one its children name. */
+        if (a11y_nsax_elements == nil) {
+            a11y_nsax_elements = [[NSMutableDictionary alloc] init];
+        }
+        [a11y_nsax_elements removeAllObjects];
+        [a11y_nsax_elements setObject:root forKey:a11y_nsax_element_key(session, node)];
 
         A11yNSAXProcessRootHost *host =
             [[A11yNSAXProcessRootHost alloc] initWithRoot:root];
@@ -1599,6 +1669,27 @@ int a11y_nsax_post_notification(a11y_nsax_callback callback,
                     A11Y_NSAX_SELECTOR_POST_NOTIFICATION,
                     notification,
                     context);
+}
+
+/* Show the process root's tree in the application's window Window (an
+   NSWindow). Returns 1 when it is shown there. */
+int a11y_nsax_attach_process_root_to_window(void *host, void *window) {
+#if defined(__APPLE__) && defined(__MACH__)
+    @try {
+        if (host == 0 || window == 0
+            || ![(id)host isKindOfClass:[A11yNSAXProcessRootHost class]]
+            || ![(id)window isKindOfClass:[NSWindow class]]) {
+            return 0;
+        }
+        return [(A11yNSAXProcessRootHost *)host a11yAttachToWindow:(NSWindow *)window];
+    } @catch (...) {
+        return 0;
+    }
+#else
+    (void)host;
+    (void)window;
+    return 0;
+#endif
 }
 
 int a11y_nsax_post_notification_for_object(void *object,

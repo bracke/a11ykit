@@ -1,3 +1,5 @@
+with System;
+
 with A11ykit.Tree;
 with A11y.Results;
 
@@ -39,6 +41,13 @@ package A11ykit.Provider is
    --
    --  @param Tree The accessibility tree to publish.
    procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree);
+
+   --  Expose the published tree through the application's own window, the
+   --  one a screen reader looks at: its native handle (an HWND on Windows, an
+   --  NSWindow on macOS). Call it once the window exists; it holds for later
+   --  publishes. Linux reaches the tree through the accessibility bus and
+   --  needs no window, so there it does nothing.
+   procedure Attach_Window (Window : System.Address);
 
    --  Answer whatever the host's screen reader has asked since the last call,
    --  from the most recently published tree, without waiting. A screen reader

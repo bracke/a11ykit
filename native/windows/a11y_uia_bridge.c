@@ -67,6 +67,16 @@ typedef uint32_t (*a11y_uia_window_query_callback)(const uint64_t *frame,
                                                    uint32_t *value,
                                                    void *context);
 
+/* Where a fragment's navigation leads: Frame is the asking provider's
+   (session, provider, object token), Direction 0 parent, 1 first child,
+   2 last child, 3 next sibling, 4 previous sibling. Answers an HRESULT and,
+   when there is an element that way, its provider and object token. */
+typedef uint32_t (*a11y_uia_navigation_callback)(const uint64_t *frame,
+                                                 uint32_t direction,
+                                                 uint64_t *target_provider,
+                                                 uint64_t *target_object,
+                                                 void *context);
+
 uint32_t a11y_uia_bridge_is_windows(void)
 {
 #if defined(_WIN32)
@@ -489,6 +499,9 @@ struct a11y_uia_callback_provider {
     a11y_uia_window_query_callback window_query_callback;
     void *callback_context;
     struct a11y_uia_callback_provider_host_window_probe *report;
+    a11y_uia_navigation_callback navigation_callback;
+    /* The fragment root this element belongs to, held; null on the root. */
+    struct a11y_uia_callback_provider *root;
 };
 
 struct a11y_uia_callback_provider_fragment_iface {
@@ -549,6 +562,7 @@ struct a11y_uia_callback_provider_window_context {
 #if defined(_WIN32)
 struct a11y_uia_live_callback_provider_host {
     HWND hwnd;
+    HWND attached_hwnd;
     struct a11y_uia_callback_provider *provider;
     struct a11y_uia_callback_provider_window_context *context;
     uint32_t initialized_here;
@@ -808,6 +822,9 @@ static ULONG STDMETHODCALLTYPE a11y_uia_callback_provider_release(
         provider->report->provider_final_ref_count = (uint32_t)refs;
     }
     if (refs == 0) {
+        if (provider->root != 0) {
+            a11y_uia_callback_provider_release((IRawElementProviderSimple *)provider->root);
+        }
         free(provider->fragment_iface);
         free(provider->fragment_root_iface);
         free(provider->invoke_iface);
@@ -2886,6 +2903,76 @@ static ULONG STDMETHODCALLTYPE a11y_uia_callback_fragment_release(
         (IRawElementProviderSimple *)provider);
 }
 
+/* An element of the root's tree other than the root: the root's methods and
+   callbacks, its own provider and object token, and no window of its own. */
+static struct a11y_uia_callback_provider *a11y_uia_callback_provider_clone(
+    struct a11y_uia_callback_provider *root,
+    uint64_t provider_id,
+    uint64_t object_token) {
+    struct a11y_uia_callback_provider *element =
+        (struct a11y_uia_callback_provider *)calloc(1, sizeof(*element));
+    if (element == 0) {
+        return 0;
+    }
+    *element = *root;
+    element->fragment_iface = calloc(1, sizeof(*element->fragment_iface));
+    element->fragment_root_iface = calloc(1, sizeof(*element->fragment_root_iface));
+    element->invoke_iface = calloc(1, sizeof(*element->invoke_iface));
+    element->toggle_iface = calloc(1, sizeof(*element->toggle_iface));
+    element->expand_collapse_iface = calloc(1, sizeof(*element->expand_collapse_iface));
+    element->scroll_item_iface = calloc(1, sizeof(*element->scroll_item_iface));
+    element->selection_item_iface = calloc(1, sizeof(*element->selection_item_iface));
+    element->range_value_iface = calloc(1, sizeof(*element->range_value_iface));
+    element->window_iface = calloc(1, sizeof(*element->window_iface));
+    element->advise_events_iface = calloc(1, sizeof(*element->advise_events_iface));
+    if (element->fragment_iface == 0 || element->fragment_root_iface == 0
+        || element->invoke_iface == 0 || element->toggle_iface == 0
+        || element->expand_collapse_iface == 0 || element->scroll_item_iface == 0
+        || element->selection_item_iface == 0 || element->range_value_iface == 0
+        || element->window_iface == 0 || element->advise_events_iface == 0) {
+        free(element->fragment_iface);
+        free(element->fragment_root_iface);
+        free(element->invoke_iface);
+        free(element->toggle_iface);
+        free(element->expand_collapse_iface);
+        free(element->scroll_item_iface);
+        free(element->selection_item_iface);
+        free(element->range_value_iface);
+        free(element->window_iface);
+        free(element->advise_events_iface);
+        free(element);
+        return 0;
+    }
+    *element->fragment_iface = *root->fragment_iface;
+    element->fragment_iface->owner = element;
+    *element->fragment_root_iface = *root->fragment_root_iface;
+    element->fragment_root_iface->owner = element;
+    *element->invoke_iface = *root->invoke_iface;
+    element->invoke_iface->owner = element;
+    *element->toggle_iface = *root->toggle_iface;
+    element->toggle_iface->owner = element;
+    *element->expand_collapse_iface = *root->expand_collapse_iface;
+    element->expand_collapse_iface->owner = element;
+    *element->scroll_item_iface = *root->scroll_item_iface;
+    element->scroll_item_iface->owner = element;
+    *element->selection_item_iface = *root->selection_item_iface;
+    element->selection_item_iface->owner = element;
+    *element->range_value_iface = *root->range_value_iface;
+    element->range_value_iface->owner = element;
+    *element->window_iface = *root->window_iface;
+    element->window_iface->owner = element;
+    *element->advise_events_iface = *root->advise_events_iface;
+    element->advise_events_iface->owner = element;
+    element->refs = 1;
+    element->provider = provider_id;
+    element->object_token = object_token;
+    element->host_hwnd = 0;
+    element->report = 0;
+    element->root = root;
+    a11y_uia_callback_provider_add_ref((IRawElementProviderSimple *)root);
+    return element;
+}
+
 static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_navigate(
     IRawElementProviderFragment *self,
     enum NavigateDirection direction,
@@ -2893,11 +2980,45 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_navigate(
     struct a11y_uia_callback_provider *provider =
         a11y_uia_callback_fragment_owner(self);
 
-    (void)direction;
     if (result == 0) {
         return E_INVALIDARG;
     }
     *result = 0;
+    if (provider != 0 && provider->navigation_callback != 0) {
+        struct a11y_uia_callback_provider *root =
+            provider->root != 0 ? provider->root : provider;
+        uint64_t frame[3];
+        uint64_t target_provider = 0;
+        uint64_t target_object = 0;
+        uint32_t code =
+            direction == NavigateDirection_Parent ? 0u :
+            direction == NavigateDirection_FirstChild ? 1u :
+            direction == NavigateDirection_LastChild ? 2u :
+            direction == NavigateDirection_NextSibling ? 3u :
+            direction == NavigateDirection_PreviousSibling ? 4u : 99u;
+        HRESULT hr;
+        struct a11y_uia_callback_provider *target;
+
+        frame[0] = provider->session;
+        frame[1] = provider->provider;
+        frame[2] = provider->object_token;
+        hr = (HRESULT)provider->navigation_callback(
+            frame, code, &target_provider, &target_object, provider->callback_context);
+        if (FAILED(hr) || target_provider == 0) {
+            return FAILED(hr) ? hr : S_OK;
+        }
+        if (target_provider == root->provider) {
+            a11y_uia_callback_provider_add_ref((IRawElementProviderSimple *)root);
+            *result = (IRawElementProviderFragment *)root->fragment_iface;
+            return S_OK;
+        }
+        target = a11y_uia_callback_provider_clone(root, target_provider, target_object);
+        if (target == 0) {
+            return E_OUTOFMEMORY;
+        }
+        *result = (IRawElementProviderFragment *)target->fragment_iface;
+        return S_OK;
+    }
     if (provider != 0 && provider->report != 0) {
         provider->report->fragment_navigate_callback_method =
             provider->fragment_navigate_method;
@@ -3146,9 +3267,13 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_root(
             ? &provider->report->fragment_root_callback_called : 0,
         provider != 0 && provider->report != 0
             ? &provider->report->fragment_root_callback_succeeded : 0);
-    if (SUCCEEDED(hr) && provider != 0 && provider->fragment_root_iface != 0) {
-        *result = (IRawElementProviderFragmentRoot *)provider->fragment_root_iface;
-        IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)provider);
+    if (SUCCEEDED(hr) && provider != 0) {
+        struct a11y_uia_callback_provider *root =
+            provider->root != 0 ? provider->root : provider;
+        if (root->fragment_root_iface != 0) {
+            *result = (IRawElementProviderFragmentRoot *)root->fragment_root_iface;
+            IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)root);
+        }
     }
     return hr;
 }
@@ -5066,6 +5191,140 @@ void *a11y_uia_create_callback_provider_host_window(
 #endif
 }
 
+/* An application's own window answering for the provider: UI Automation asks
+   the window a screen reader is looking at, so the provider must be reachable
+   from that window, not from a window of the bridge's own. The window's
+   procedure is replaced by one that answers the root query with the provider
+   and hands everything else to the procedure it replaced. */
+#if defined(_WIN32)
+static const wchar_t a11y_uia_attachment_property[] = L"A11yKitUiaAttachment";
+
+struct a11y_uia_window_attachment {
+    WNDPROC previous;
+    IRawElementProviderSimple *provider;
+};
+
+static void a11y_uia_release_attachment(HWND hwnd) {
+    struct a11y_uia_window_attachment *attachment =
+        (struct a11y_uia_window_attachment *)GetPropW(hwnd, a11y_uia_attachment_property);
+    if (attachment == 0) {
+        return;
+    }
+    RemovePropW(hwnd, a11y_uia_attachment_property);
+    if (attachment->provider != 0) {
+        IRawElementProviderSimple_Release(attachment->provider);
+    }
+    free(attachment);
+}
+
+static LRESULT CALLBACK a11y_uia_attached_window_proc(
+    HWND hwnd,
+    UINT message,
+    WPARAM wparam,
+    LPARAM lparam) {
+    struct a11y_uia_window_attachment *attachment =
+        (struct a11y_uia_window_attachment *)GetPropW(hwnd, a11y_uia_attachment_property);
+    WNDPROC previous;
+
+    if (attachment == 0) {
+        return DefWindowProcW(hwnd, message, wparam, lparam);
+    }
+    previous = attachment->previous;
+    if (message == WM_GETOBJECT && (LONG)lparam == UiaRootObjectId
+        && attachment->provider != 0) {
+        return UiaReturnRawElementProvider(hwnd, wparam, lparam, attachment->provider);
+    }
+    if (message == WM_NCDESTROY) {
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)previous);
+        /* A window being destroyed releases its providers. */
+        UiaReturnRawElementProvider(hwnd, 0, 0, 0);
+        a11y_uia_release_attachment(hwnd);
+    }
+    return CallWindowProcW(previous, hwnd, message, wparam, lparam);
+}
+
+static void a11y_uia_detach_window(HWND hwnd) {
+    if (hwnd == 0 || GetPropW(hwnd, a11y_uia_attachment_property) == 0) {
+        return;
+    }
+    {
+        struct a11y_uia_window_attachment *attachment =
+            (struct a11y_uia_window_attachment *)GetPropW(hwnd, a11y_uia_attachment_property);
+        /* Put the replaced procedure back only while ours is still the one
+           installed; someone who replaced it after us chains to ours. */
+        if ((WNDPROC)GetWindowLongPtrW(hwnd, GWLP_WNDPROC) == a11y_uia_attached_window_proc) {
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)attachment->previous);
+            a11y_uia_release_attachment(hwnd);
+        } else if (attachment->provider != 0) {
+            IRawElementProviderSimple_Release(attachment->provider);
+            attachment->provider = 0;
+        }
+    }
+    UiaReturnRawElementProvider(hwnd, 0, 0, 0);
+}
+#endif
+
+/* Hand the provider of a callback host to the application's window Window.
+   Returns 1 when the window now answers for it. */
+uint32_t a11y_uia_attach_callback_provider_host_window(void *handle, void *window) {
+#if defined(_WIN32)
+    struct a11y_uia_live_callback_provider_host *host =
+        (struct a11y_uia_live_callback_provider_host *)handle;
+    HWND hwnd = (HWND)window;
+    struct a11y_uia_window_attachment *attachment;
+    WNDPROC previous;
+
+    if (host == 0 || host->provider == 0 || hwnd == 0 || !IsWindow(hwnd)) {
+        return 0;
+    }
+    a11y_uia_detach_window(hwnd);
+
+    attachment = (struct a11y_uia_window_attachment *)calloc(1, sizeof(*attachment));
+    if (attachment == 0) {
+        return 0;
+    }
+    attachment->provider = (IRawElementProviderSimple *)host->provider;
+    IRawElementProviderSimple_AddRef(attachment->provider);
+    if (!SetPropW(hwnd, a11y_uia_attachment_property, attachment)) {
+        IRawElementProviderSimple_Release(attachment->provider);
+        free(attachment);
+        return 0;
+    }
+    previous = (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)a11y_uia_attached_window_proc);
+    if (previous == 0) {
+        a11y_uia_release_attachment(hwnd);
+        return 0;
+    }
+    attachment->previous = previous;
+    /* The provider's host is now the application's window, so UI Automation
+       merges it with what the window itself provides (title, frame). */
+    host->provider->host_hwnd = hwnd;
+    host->attached_hwnd = hwnd;
+    return 1;
+#else
+    (void)handle;
+    (void)window;
+    return 0;
+#endif
+}
+
+/* Let the host's provider, and every element reached from it, navigate the
+   tree through Callback. */
+void a11y_uia_set_callback_provider_host_navigation(
+    void *handle,
+    a11y_uia_navigation_callback callback) {
+#if defined(_WIN32)
+    struct a11y_uia_live_callback_provider_host *host =
+        (struct a11y_uia_live_callback_provider_host *)handle;
+    if (host != 0 && host->provider != 0) {
+        host->provider->navigation_callback = callback;
+    }
+#else
+    (void)handle;
+    (void)callback;
+#endif
+}
+
 /* UI Automation asks the host window for its provider with WM_GETOBJECT,
    sent to the thread that owns the window; answer whatever is waiting. */
 void a11y_uia_pump_callback_provider_host_window(void *handle) {
@@ -5091,6 +5350,12 @@ void a11y_uia_destroy_callback_provider_host_window(void *handle) {
         (struct a11y_uia_live_callback_provider_host *)handle;
     if (host == 0) {
         return;
+    }
+    if (host->attached_hwnd != 0) {
+        if (IsWindow(host->attached_hwnd)) {
+            a11y_uia_detach_window(host->attached_hwnd);
+        }
+        host->attached_hwnd = 0;
     }
     if (host->hwnd != 0) {
         SetWindowLongPtrW(host->hwnd, GWLP_USERDATA, 0);

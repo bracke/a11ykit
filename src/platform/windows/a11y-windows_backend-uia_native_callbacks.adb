@@ -4,6 +4,8 @@ with Ada.Unchecked_Conversion;
 with Ada.Strings.Unbounded;
 
 with A11y.Windows_Backend.UIA_COM_Exports;
+with A11y.Windows_Backend.UIA_Fragments;
+with A11y.Windows_Backend.UIA_Public_Roots;
 with A11y.Windows_Backend.UIA_Actions;
 with A11y.Windows_Backend.UIA_ABI_Surface;
 with A11y.Windows_Backend.UIA_Com_Providers;
@@ -15,6 +17,8 @@ with A11y.Windows_Backend.UIA_Values;
 with A11y.Geometry;
 with A11y.States;
 with A11y.Native_Identity;
+with A11y.Node_Ids;
+with A11y.Semantic_Snapshots;
 with A11y.Values;
 
 package body A11y.Windows_Backend.UIA_Native_Callbacks is
@@ -271,6 +275,76 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
          return 50_025;
    end Native_Control_Type_Id;
 
+
+   --  One snapshot answers for every node of the published tree, from the
+   --  metadata of the node it is pointed at. Before a request is answered,
+   --  point it at the node of the provider the request came to, so a child
+   --  is answered as itself and not refused as "not the root".
+   function Node_Of
+     (View          : Context_Conversions.Object_Pointer;
+      Session_Code  : Native.Native_UInt64;
+      Provider_Code : Native.Native_UInt64)
+      return A11y.Node_Ids.Node_Id
+   is
+      Registered : A11y.Windows_Backend.UIA_Provider_Registry.Provider_Record_Snapshot;
+      Result     : A11y.Results.Result;
+   begin
+      if Session_Code = 0
+        or else Provider_Code = 0
+        or else Session_Code > Native.Native_UInt64 (Natural'Last)
+        or else Provider_Code > Native.Native_UInt64 (Natural'Last)
+      then
+         return A11y.Node_Ids.No_Node;
+      end if;
+      A11y.Windows_Backend.UIA_Provider_Registry.Resolve_Provider
+        (View.Registry.all,
+         A11y.Native_Identity.From_Natural (Natural (Session_Code)),
+         A11y.Windows_Backend.UIA_Provider_Registry.From_Natural (Natural (Provider_Code)),
+         Registered,
+         Result);
+      return
+        (if A11y.Results.Succeeded (Result) then Registered.Provider.Node
+         else A11y.Node_Ids.No_Node);
+   exception
+      when others =>
+         return A11y.Node_Ids.No_Node;
+   end Node_Of;
+
+   procedure Retarget
+     (Frame   : access constant Native.Native_UInt64;
+      Context : System.Address)
+   is
+      View       : Context_Conversions.Object_Pointer;
+      Frame_View : Frame_Conversions.Object_Pointer;
+      Node       : A11y.Node_Ids.Node_Id;
+   begin
+      if Frame = null or else Context = System.Null_Address then
+         return;
+      end if;
+      View := Context_Conversions.To_Pointer (Context);
+      Frame_View := Frame_Conversions.To_Pointer (Frame.all'Address);
+      if View = null
+        or else Frame_View = null
+        or else View.Registry = null
+        or else View.Snapshots = null
+        or else not View.Snapshots.Properties.Use_Node_Metadata
+      then
+         return;
+      end if;
+      Node := Node_Of (View, Frame_View (0), Frame_View (1));
+      if A11y.Node_Ids.Is_Valid (Node)
+        and then A11y.Semantic_Snapshots.Has_Node (View.Snapshots.Properties.Nodes, Node)
+      then
+         View.Snapshots.Properties.Id := Node;
+         View.Snapshots.Fragment.Node := Node;
+         View.Snapshots.Action_Node := Node;
+         View.Snapshots.Relation_Source := Node;
+      end if;
+   exception
+      when others =>
+         null;
+   end Retarget;
+
    function Dispatch_Interface_Frame_Callback
      (Frame   : access constant Native.Native_UInt64;
       Context : System.Address)
@@ -282,6 +356,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       Request_Frame : Live.ABI_Interface_Frame;
       Reply : Boundary.Boundary_Reply;
    begin
+      Retarget (Frame, Context);
       if Frame = null
         or else Context = System.Null_Address
         or else Context_View = null
@@ -354,6 +429,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       Request : A11y.Windows_Backend.UIA_Request_Router.Request;
       Routed : A11y.Windows_Backend.UIA_Request_Router.Routed_Reply;
    begin
+      Retarget (Frame, Context);
       if Frame = null
         or else Value_Kind = null
         or else UTF8_Used = null
@@ -502,6 +578,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       Report : Live.ABI_Interface_Frame_Report;
       Reply : Boundary.Boundary_Reply;
    begin
+      Retarget (Frame, Context);
       if Frame = null
         or else Value_Kind = null
         or else Used = null
@@ -591,6 +668,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       Report : Live.ABI_Interface_Frame_Report;
       Reply : Boundary.Boundary_Reply;
    begin
+      Retarget (Frame, Context);
       if Frame = null
         or else Left = null
         or else Top = null
@@ -675,6 +753,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       Report : Live.ABI_Interface_Frame_Report;
       Reply : Boundary.Boundary_Reply;
    begin
+      Retarget (Frame, Context);
       if Frame = null
         or else Value = null
         or else Context = System.Null_Address
@@ -752,6 +831,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       Reply : Boundary.Boundary_Reply;
       Pattern : A11y.Windows_Backend.UIA_Actions.UIA_Pattern;
    begin
+      Retarget (Frame, Context);
       if Frame = null
         or else Supported = null
         or else Context = System.Null_Address
@@ -832,6 +912,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       Reply : Boundary.Boundary_Reply;
       Effective_States : A11y.States.State_Set;
    begin
+      Retarget (Frame, Context);
       if Frame = null
         or else State = null
         or else Context = System.Null_Address
@@ -936,6 +1017,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       Reply : Boundary.Boundary_Reply;
       Native_Value : constant Long_Float := Long_Float (Value);
    begin
+      Retarget (Frame, Context);
       if Frame = null
         or else Context = System.Null_Address
         or else Context_View = null
@@ -1069,6 +1151,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       Request : Boundary.Boundary_Request;
       Reply : Boundary.Boundary_Reply;
    begin
+      Retarget (Frame, Context);
       if Frame = null
         or else Numeric_Value = null
         or else Boolean_Value = null
@@ -1225,6 +1308,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       Request : Boundary.Boundary_Request;
       Reply : Boundary.Boundary_Reply;
    begin
+      Retarget (Frame, Context);
       if Frame = null
         or else Value = null
         or else Context = System.Null_Address
@@ -1362,5 +1446,101 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
          end if;
          return 16#8000_4005#;
    end Copy_Window_Query_Callback;
+
+
+   function Navigation_Callback
+     (Frame           : access constant Native.Native_UInt64;
+      Direction       : Native.Native_UInt32;
+      Target_Provider : access Native.Native_UInt64;
+      Target_Object   : access Native.Native_UInt64;
+      Context         : System.Address)
+      return Native.Native_UInt32
+   is
+      package Fragments renames A11y.Windows_Backend.UIA_Fragments;
+
+      View       : Context_Conversions.Object_Pointer;
+      Frame_View : Frame_Conversions.Object_Pointer;
+      Node       : A11y.Node_Ids.Node_Id;
+      Way        : Fragments.Navigate_Direction;
+      Reply      : Fragments.Fragment_Reply;
+      Target     : A11y.Node_Ids.Node_Id;
+      Report     : A11y.Windows_Backend.UIA_Public_Roots.Public_Root_Export_Report;
+   begin
+      if Frame = null
+        or else Target_Provider = null
+        or else Target_Object = null
+        or else Context = System.Null_Address
+      then
+         return 16#8007_0057#;  --  E_INVALIDARG
+      end if;
+      Target_Provider.all := 0;
+      Target_Object.all := 0;
+
+      View := Context_Conversions.To_Pointer (Context);
+      Frame_View := Frame_Conversions.To_Pointer (Frame.all'Address);
+      if View = null
+        or else Frame_View = null
+        or else View.Registry = null
+        or else View.Object_Table = null
+        or else View.Snapshots = null
+        or else Direction > 4
+      then
+         return 16#8007_0057#;
+      end if;
+
+      Node := Node_Of (View, Frame_View (0), Frame_View (1));
+      if not A11y.Node_Ids.Is_Valid (Node) then
+         return 0;
+      end if;
+
+      Way :=
+        (case Direction is
+            when 0 => Fragments.Parent,
+            when 1 => Fragments.First_Child,
+            when 2 => Fragments.Last_Child,
+            when 3 => Fragments.Next_Sibling,
+            when others => Fragments.Previous_Sibling);
+      View.Snapshots.Fragment.Node := Node;
+      Reply := Fragments.Navigate (View.Snapshots.Fragment, Way);
+      if not Reply.Found or else not A11y.Node_Ids.Is_Valid (Reply.Node) then
+         return 0;
+      end if;
+      Target := Reply.Node;
+      if A11y.Node_Ids.To_Natural (Target) not in View.Exports'Range then
+         return 0;
+      end if;
+
+      if View.Exports (A11y.Node_Ids.To_Natural (Target)).Provider = 0 then
+         A11y.Windows_Backend.UIA_Public_Roots.Export_Public_Root
+           (View.Registry.all,
+            View.Object_Table.all,
+            View.Snapshots.Fragment.Session,
+            View.Snapshots.Fragment.Fragment_Root,
+            Target,
+            Report);
+         --  Only the root is a fragment root, so a child's report says
+         --  that interface is missing; what navigation needs is the object
+         --  and its fragment interface.
+         if not Report.Object_Exported
+           or else not Report.Fragment_Interface_Queryable
+           or else not A11y.Windows_Backend.UIA_Provider_Registry.Is_Valid (Report.Provider)
+         then
+            return 0;
+         end if;
+         View.Exports (A11y.Node_Ids.To_Natural (Target)) :=
+           (Provider =>
+              Native.Native_UInt64 (A11y.Windows_Backend.UIA_Provider_Registry.To_Natural (Report.Provider)),
+            Object   =>
+              Native.Native_UInt64
+                (A11y.Windows_Backend.UIA_COM_Object_Exports.To_Natural (Report.Object_Export.Token)));
+      end if;
+
+      Target_Provider.all := View.Exports (A11y.Node_Ids.To_Natural (Target)).Provider;
+      Target_Object.all := View.Exports (A11y.Node_Ids.To_Natural (Target)).Object;
+      return 0;
+   exception
+      when others =>
+         return 16#8000_4005#;
+   end Navigation_Callback;
 
 end A11y.Windows_Backend.UIA_Native_Callbacks;

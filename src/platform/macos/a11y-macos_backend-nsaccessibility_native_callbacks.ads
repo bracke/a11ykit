@@ -12,8 +12,10 @@ package A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
       Registry :
         access A11y.MacOS_Backend.NSAccessibility_Element_Registry
           .Element_Registry;
+      --  Written as well as read: a request is answered from the snapshot
+      --  pointed at the element it came to (see Dispatch).
       Snapshots :
-        access constant A11y.MacOS_Backend.NSAccessibility_Request_Router
+        access A11y.MacOS_Backend.NSAccessibility_Request_Router
           .Snapshot_Bundle;
       Dispatched : Boolean := False;
       Last_Report :

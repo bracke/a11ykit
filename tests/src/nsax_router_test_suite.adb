@@ -5,6 +5,10 @@ with Ada.Strings.Unbounded;
 with Ada.Strings.Wide_Wide_Unbounded;
 with Ada.Text_IO;
 
+with A11ykit;
+with A11ykit.MacOS_Snapshots;
+with A11ykit.Tree;
+
 with A11y.Actions;
 with A11y.Capabilities;
 with A11y.Diagnostics;
@@ -25,6 +29,8 @@ with A11y.MacOS_Backend.NSAccessibility_Image;
 with A11y.MacOS_Backend.NSAccessibility_Live_Regions;
 with A11y.MacOS_Backend.NSAccessibility_Mappings;
 with A11y.MacOS_Backend.NSAccessibility_Native_Bridge;
+with A11y.MacOS_Backend.NSAccessibility_Native_Callbacks;
+with A11y.MacOS_Backend.NSAccessibility_Public_Roots;
 with A11y.MacOS_Backend.NSAccessibility_Native_Values;
 with A11y.MacOS_Backend.NSAccessibility_Provider_Boundary;
 with A11y.MacOS_Backend.NSAccessibility_Properties;
@@ -8309,6 +8315,111 @@ begin
            Bridge.Opaque_Object_Reference
          and then not Notification_Callback.Accessibility_Policy,
          "macOS NSAccessibility Objective-C bridge audit constrains notification callbacks");
+   end;
+
+   --  What an AX client does with a published window: ask the root for its
+   --  children, then ask each child for its role and title. The root is the
+   --  element code the provider installs, the node's own number.
+   declare
+      use type Interfaces.Unsigned_64;
+      use type A11y.MacOS_Backend.NSAccessibility_Native_Bridge.Native_Status;
+      use Ada.Strings.Unbounded;
+
+      package Native renames A11y.MacOS_Backend.NSAccessibility_Native_Bridge;
+      package Callbacks renames A11y.MacOS_Backend.NSAccessibility_Native_Callbacks;
+      package ABI renames A11y.MacOS_Backend.NSAccessibility_ABI_Surface;
+
+      type Bundle_Access is access A11y.MacOS_Backend.NSAccessibility_Request_Router.Snapshot_Bundle;
+      type Registry_Access is access A11y.MacOS_Backend.NSAccessibility_Element_Registry.Element_Registry;
+
+      Flat : A11ykit.Tree.Node_Vectors.Vector;
+      Tree : A11ykit.Tree.Accessibility_Tree;
+      Bundle : constant Bundle_Access := new A11y.MacOS_Backend.NSAccessibility_Request_Router.Snapshot_Bundle;
+      Elements : constant Registry_Access :=
+        new A11y.MacOS_Backend.NSAccessibility_Element_Registry.Element_Registry;
+      Session : constant A11y.Native_Identity.Backend_Session_Id := A11y.Native_Identity.Create_Session;
+      Root : A11y.Node_Ids.Node_Id;
+      Result : A11y.Results.Result;
+      Export : A11y.MacOS_Backend.NSAccessibility_Public_Roots.Public_Root_Export_Report;
+      Context : aliased Callbacks.Callback_Context :=
+        (Registry => Elements.all'Unchecked_Access, Snapshots => Bundle.all'Unchecked_Access, others => <>);
+      Objects : array (0 .. 31) of aliased Native.Native_UInt64 := [others => 0];
+      Object_Count : aliased Native.Native_UInt64 := 0;
+      Value_Kind : aliased Native.Native_UInt32 := 0;
+      Items : array (0 .. 127) of aliased Native.Native_UInt32 := [others => 0];
+      Item_Count : aliased Native.Native_UInt64 := 0;
+      UTF8 : String (1 .. 512) := [others => ' '];
+      UTF8_Used : aliased Native.Native_UInt64 := 0;
+      Roles_Answered : Natural := 0;
+      Titles : Unbounded_String;
+
+      function Node (Role : A11ykit.Role; Name : String; Y, Height : Integer) return A11ykit.Tree.Node is
+        (Node_Role   => Role,
+         Bounds      => (X => 0, Y => Y, Width => 400, Height => Height),
+         Name        => To_Unbounded_String (Name),
+         Description => Null_Unbounded_String,
+         Node_State  => (others => <>),
+         Parent      => 0);
+
+      function Copy_Value (Element : Native.Native_UInt64; Attribute : Interfaces.Unsigned_32) return Boolean is
+        (Callbacks.Copy_Value_Callback
+           (Native.Native_UInt64 (A11y.Native_Identity.To_Natural (Session)),
+            Element,
+            ABI.Selector_Code (ABI.Accessibility_Attribute_Value),
+            Attribute,
+            Value_Kind'Access,
+            Items'Address,
+            Native.Native_UInt64 (Items'Length),
+            Item_Count'Access,
+            UTF8'Address,
+            Native.Native_UInt64 (UTF8'Length),
+            UTF8_Used'Access,
+            Context'Address) /= Native.Native_Status (0));
+   begin
+      Flat.Append (Node (A11ykit.Role_Window, "Focus walk", 0, 300));
+      Flat.Append (Node (A11ykit.Role_List, "Files", 0, 300));
+      Flat.Append (Node (A11ykit.Role_List_Item, "first.txt", 20, 20));
+      Flat.Append (Node (A11ykit.Role_List_Item, "second.txt", 40, 20));
+      Tree := A11ykit.Tree.Build (Flat);
+
+      Root := A11ykit.MacOS_Snapshots.Root_Node (Tree, Result);
+      A11ykit.MacOS_Snapshots.Build_Snapshots (Tree, Root, Session, Bundle.all, Result);
+      Check (A11y.Results.Succeeded (Result), "macOS provider snapshot builds for a published window: " & Result.Status'Image);
+      A11y.MacOS_Backend.NSAccessibility_Public_Roots.Export_Public_Root
+        (Elements.all, Session, Root, Root, Export);
+      Check (Export.Status = A11y.Results.Success, "macOS provider exports the window's root");
+
+      Check
+        (Callbacks.Copy_Object_Callback
+           (Native.Native_UInt64 (A11y.Native_Identity.To_Natural (Session)),
+            Native.Native_UInt64 (A11y.Node_Ids.To_Natural (Root)),
+            ABI.Selector_Code (ABI.Accessibility_Children),
+            0, 0, 0,
+            Objects'Address,
+            Native.Native_UInt64 (Objects'Length),
+            Object_Count'Access,
+            Context'Address) /= Native.Native_Status (0)
+         and then Object_Count = 3,
+         "macOS root answers its three children");
+
+      for Index in 0 .. Natural (Object_Count) - 1 loop
+         if Copy_Value (Objects (Index), ABI.Attribute_Code (A11y.MacOS_Backend.NSAccessibility_Properties.Role)) then
+            Roles_Answered := Roles_Answered + 1;
+         end if;
+         if Copy_Value (Objects (Index), ABI.Attribute_Code (A11y.MacOS_Backend.NSAccessibility_Properties.Title))
+           or else Copy_Value (Objects (Index), ABI.Attribute_Code (A11y.MacOS_Backend.NSAccessibility_Properties.Label))
+         then
+            Append (Titles, UTF8 (1 .. Natural (UTF8_Used)) & ";");
+         end if;
+      end loop;
+      Check
+        (Object_Count = 3 and then Roles_Answered = 3,
+         "macOS children answer their roles:" & Roles_Answered'Image
+         & " (last status " & Context.Last_Status'Image & ", element"
+         & Objects (0)'Image & ", root" & A11y.Node_Ids.To_Natural (Root)'Image & ")");
+      Check
+        (Index (Titles, "first.txt") > 0,
+         "macOS children answer their names: " & To_String (Titles));
    end;
 
    if Failures = 0 then

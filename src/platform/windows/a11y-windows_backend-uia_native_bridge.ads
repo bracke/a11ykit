@@ -692,6 +692,32 @@ package A11y.Windows_Backend.UIA_Native_Bridge is
    with Import, Convention => C,
         External_Name => "a11y_uia_create_callback_provider_host_window";
 
+   --  Make the application's window Window answer UI Automation for the
+   --  host's provider; 1 when it does.
+   function Attach_Callback_Provider_Host_Window
+     (Handle : System.Address;
+      Window : System.Address)
+      return Native_UInt32
+   with Import, Convention => C,
+        External_Name => "a11y_uia_attach_callback_provider_host_window";
+
+   type Navigation_Callback is access function
+     (Frame           : access constant Native_UInt64;
+      Direction       : Native_UInt32;
+      Target_Provider : access Native_UInt64;
+      Target_Object   : access Native_UInt64;
+      Context         : System.Address)
+      return Native_UInt32
+   with Convention => C;
+
+   --  Let the host's provider, and every element reached from it, navigate
+   --  the tree through Callback.
+   procedure Set_Callback_Provider_Host_Navigation
+     (Handle   : System.Address;
+      Callback : Navigation_Callback)
+   with Import, Convention => C,
+        External_Name => "a11y_uia_set_callback_provider_host_navigation";
+
    procedure Pump_Callback_Provider_Host_Window (Handle : System.Address)
    with Import, Convention => C,
         External_Name => "a11y_uia_pump_callback_provider_host_window";
