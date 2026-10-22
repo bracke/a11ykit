@@ -127,6 +127,9 @@ package body A11ykit.Compatibility is
          return A11y.Node_Ids.No_Node;
       end if;
 
+      if Index <= Natural (Tree.Ids.Length) then
+         return A11y.Node_Ids.From_Natural (Tree.Ids (Index));
+      end if;
       return A11y.Node_Ids.From_Natural (Index);
    end Node_Id_For_Index;
 

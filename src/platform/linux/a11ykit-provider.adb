@@ -1,5 +1,7 @@
 with Ada.Text_IO;
 with Ada.Calendar;
+with Ada.Containers.Ordered_Maps;
+with Ada.Containers.Ordered_Sets;
 with Ada.Containers.Vectors;
 with Ada.Command_Line;
 with Ada.Directories;
@@ -48,23 +50,44 @@ package body A11ykit.Provider is
    Window_Active : Boolean := False;
    Last_Tree     : A11ykit.Tree.Accessibility_Tree;
 
-   --  What the screen reader last heard: each node's signature (its role,
-   --  name and parent) and which node had the focus.
    package Signature_Vectors is new Ada.Containers.Vectors (Positive, Unbounded_String);
 
-   Last_Signatures : Signature_Vectors.Vector;
+   --  A node keeps its object id while nodes around it come and go, so a
+   --  screen reader holding the object still holds that item, and an item
+   --  that goes is announced as itself. Its identity is its role and name
+   --  under its parent's identity; the id was given the first time that
+   --  identity was published.
+   package Id_Maps is new Ada.Containers.Ordered_Maps (Unbounded_String, Positive);
+   package Id_Sets is new Ada.Containers.Ordered_Sets (Positive);
 
-   package Index_Vectors is new Ada.Containers.Vectors (Positive, Natural);
+   type Published_Node is record
+      Signature : Unbounded_String;  --  role, name, parent id
+      Parent    : Natural := 0;      --  parent's id
+      Position  : Positive := 1;     --  place among its parent's children
+   end record;
 
-   --  Each node's parent in the last publication, to tell a parent that a
-   --  child is gone.
-   Last_Parents : Index_Vectors.Vector;
-   Last_Focus      : Unbounded_String;
+   package Published_Maps is new Ada.Containers.Ordered_Maps (Positive, Published_Node);
+
+   --  What the screen reader last heard, by id, and which node had the focus.
+   Id_Of_Identity : Id_Maps.Map;
+   Last_Published : Published_Maps.Map;
+   Last_Ids       : A11ykit.Tree.Index_Vectors.Vector;
+   Last_Focus     : Unbounded_String;
+
+   --  The ids of the publication in progress, by index: the session's node
+   --  numbers, which are indices, are sent under these.
+   Current_Ids : A11ykit.Tree.Index_Vectors.Vector;
 
    --  Nodes whose signature differs from the last publication's, or that are
    --  new; only these are announced again.
    Changed : array (1 .. 65_536) of Boolean := [others => False];
 
+   --  The id the node at Index is published under.
+   function Id_At (Tree : A11ykit.Tree.Accessibility_Tree; Index : Natural) return Natural is
+     (if Index = 0 then 0 else A11y.Node_Ids.To_Natural (A11ykit.Compatibility.Node_Id_For_Index (Tree, Index)));
+
+   --  Each node's signature: its role, name and parent's id. A node whose
+   --  signature changed, or that is new, is announced again.
    function Signatures_Of (Tree : A11ykit.Tree.Accessibility_Tree) return Signature_Vectors.Vector is
       Result : Signature_Vectors.Vector;
    begin
@@ -72,7 +95,7 @@ package body A11ykit.Provider is
          Result.Append
            (To_Unbounded_String
               (A11ykit.Role'Image (Item.Node_Role) & ASCII.NUL & To_String (Item.Name)
-               & ASCII.NUL & Natural'Image (Item.Parent)));
+               & ASCII.NUL & Natural'Image (Id_At (Tree, Item.Parent))));
       end loop;
       return Result;
    end Signatures_Of;
@@ -80,7 +103,85 @@ package body A11ykit.Provider is
    function Focus_Of (Tree : A11ykit.Tree.Accessibility_Tree) return Unbounded_String is
      (if Tree.Focused = 0 then Null_Unbounded_String
       else To_Unbounded_String
-             (Natural'Image (Tree.Focused) & ASCII.NUL & To_String (Tree.Nodes (Tree.Focused).Name)));
+             (Natural'Image (Id_At (Tree, Tree.Focused)) & ASCII.NUL & To_String (Tree.Nodes (Tree.Focused).Name)));
+
+   --  Give Tree's nodes their ids: the id an identity had before, else one
+   --  that no node had in the last publication either, so a new item never
+   --  takes over the id of an item that has just gone. The application node,
+   --  first, is always 1.
+   procedure Assign_Ids (Tree : in out A11ykit.Tree.Accessibility_Tree) is
+      Count      : constant Natural := Natural (Tree.Nodes.Length);
+      Identities : array (1 .. Count) of Unbounded_String;
+      Done       : array (1 .. Count) of Boolean := [others => False];
+      Seen       : Id_Maps.Map;
+      Taken      : Id_Sets.Set;
+      Next_Free  : Positive := 2;
+      Ids        : A11ykit.Tree.Index_Vectors.Vector;
+      Fresh      : Id_Maps.Map;
+
+      function Identity (Index : Positive; Depth : Natural := 0) return Unbounded_String is
+      begin
+         if not Done (Index) then
+            declare
+               Item : constant A11ykit.Tree.Node := Tree.Nodes (Index);
+               Base : constant Unbounded_String :=
+                 (if Item.Parent = 0 or else Depth > Count then Null_Unbounded_String
+                  else Identity (Item.Parent, Depth + 1))
+                 & "/" & A11ykit.Role'Image (Item.Node_Role) & ":" & Item.Name;
+               Occurrence : constant Natural :=
+                 (if Seen.Contains (Base) then Seen.Element (Base) + 1 else 1);
+            begin
+               Seen.Include (Base, Occurrence);
+               Identities (Index) := Base & "#" & Natural'Image (Occurrence);
+               Done (Index) := True;
+            end;
+         end if;
+         return Identities (Index);
+      end Identity;
+   begin
+      if Count = 0 then
+         return;
+      end if;
+      for Index in 1 .. Count loop
+         declare
+            Ignored : constant Unbounded_String := Identity (Index);
+         begin
+            null;
+         end;
+      end loop;
+
+      --  Ids of the last publication are not handed out afresh this time.
+      for Id of Last_Ids loop
+         Taken.Include (Id);
+      end loop;
+      Taken.Include (1);
+      for Index in 1 .. Count loop
+         declare
+            Id : Positive := 1;
+         begin
+            if Index = 1 then
+               Id := 1;
+            elsif Id_Of_Identity.Contains (Identities (Index)) then
+               Id := Id_Of_Identity.Element (Identities (Index));
+            else
+               while Taken.Contains (Next_Free) loop
+                  Next_Free := Next_Free + 1;
+               end loop;
+               Id := Next_Free;
+               Taken.Include (Id);
+            end if;
+            if Id > A11y.Trees.Max_Attached_Nodes then
+               --  Out of ids: publish by position, as before stable ids.
+               Tree.Ids.Clear;
+               return;
+            end if;
+            Ids.Append (Id);
+            Fresh.Include (Identities (Index), Id);
+         end;
+      end loop;
+      Tree.Ids := Ids;
+      Id_Of_Identity := Fresh;
+   end Assign_Ids;
 
    --  The sequence number given to the last event handed to the backend.
    Last_Delivered : A11y.Event_Sequence := A11y.No_Event;
@@ -232,8 +333,17 @@ package body A11ykit.Provider is
             --  number them afresh from one counter that lives as long as the
             --  provider.
             Last_Delivered := Last_Delivered + 1;
+            --  The session numbers its nodes in tree order; the screen
+            --  reader knows each by its published id.
             A11y.Linux.ATSPi_Backend_Sessions.Queue_Event_Signal
-              (Session, (Event with delta Sequence => Last_Delivered), Queue_Result);
+              (Session,
+               (Event with delta
+                  Sequence => Last_Delivered,
+                  Source   =>
+                    (if A11y.Node_Ids.To_Natural (Event.Source) in 1 .. Natural (Current_Ids.Length)
+                     then A11y.Node_Ids.From_Natural (Current_Ids (A11y.Node_Ids.To_Natural (Event.Source)))
+                     else Event.Source)),
+               Queue_Result);
             if A11y.Results.Failed (Queue_Result) then
                Result := Queue_Result;
                return;
@@ -381,7 +491,8 @@ package body A11ykit.Provider is
          return Tree;
    end Under_Application;
 
-   procedure Publish_Under_Application (Tree : A11ykit.Tree.Accessibility_Tree) is
+   procedure Publish_Under_Application (Plain : A11ykit.Tree.Accessibility_Tree) is
+      Tree : A11ykit.Tree.Accessibility_Tree := Plain;
       type Semantic_Access is access A11y.Sessions.Semantic_Session;
       procedure Free is new Ada.Unchecked_Deallocation
         (A11y.Sessions.Semantic_Session, Semantic_Access);
@@ -399,6 +510,8 @@ package body A11ykit.Provider is
          Free (Snapshots);
       end Release_Working_State;
    begin
+      Assign_Ids (Tree);
+      Current_Ids := Tree.Ids;
       Root := Root_Node (Tree, Result);
       if A11y.Results.Failed (Result) then
          A11ykit.Provider_Runtime.Record_Publish_Result
@@ -464,10 +577,14 @@ package body A11ykit.Provider is
       begin
          for Index in Signatures.First_Index .. Signatures.Last_Index loop
             if Index in Changed'Range then
-               Changed (Index) :=
-                 Index > Last_Signatures.Last_Index
-                 or else Signatures (Index) /= Last_Signatures (Index);
-               Any_Change := Any_Change or else Changed (Index);
+               declare
+                  Id : constant Positive := Id_At (Tree, Index);
+               begin
+                  Changed (Index) :=
+                    not Last_Published.Contains (Id)
+                    or else Signatures (Index) /= Last_Published.Element (Id).Signature;
+                  Any_Change := Any_Change or else Changed (Index);
+               end;
             end if;
          end loop;
          Which :=
@@ -477,50 +594,68 @@ package body A11ykit.Provider is
             else No_Events);
          Publish_Queued_Events (Semantic.all, Which, Focus /= Last_Focus, Delivered, Result);
 
-         --  Nodes past the new tree's end are gone: tell each one's parent,
-         --  when that parent is still there, that a child was removed.
+         --  Items gone since the last publication: tell each one's parent,
+         --  when that parent is still there, that this child was removed.
          if not First and then A11y.Results.Succeeded (Result) then
-            for Index in Natural (Tree.Nodes.Length) + 1 .. Natural (Last_Parents.Length) loop
-               declare
-                  Parent : constant Natural := Last_Parents (Index);
-                  Queued : A11y.Results.Result;
-                  --  Where the child sat among its parent's children.
-                  Position : Positive := 1;
-               begin
-                  for Earlier in 1 .. Index - 1 loop
-                     if Last_Parents (Earlier) = Parent then
-                        Position := Position + 1;
+            declare
+               Present : Id_Sets.Set;
+            begin
+               for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
+                  Present.Include (Id_At (Tree, Index));
+               end loop;
+               for Position in Last_Published.Iterate loop
+                  declare
+                     Id     : constant Positive := Published_Maps.Key (Position);
+                     Gone   : constant Published_Node := Published_Maps.Element (Position);
+                     Queued : A11y.Results.Result;
+                  begin
+                     if not Present.Contains (Id)
+                       and then Gone.Parent /= 0
+                       and then Present.Contains (Gone.Parent)
+                     then
+                        Last_Delivered := Last_Delivered + 1;
+                        A11y.Linux.ATSPi_Backend_Sessions.Queue_Tree_Event_Signal
+                          (Session,
+                           (Sequence  => Last_Delivered,
+                            Timestamp => Ada.Calendar.Clock,
+                            Source    => A11y.Node_Ids.From_Natural (Gone.Parent),
+                            Kind      => A11y.Events.Child_Removed,
+                            Revision  => A11y.Initial_Revision),
+                           (Parent    => A11y.Node_Ids.From_Natural (Gone.Parent),
+                            Child     => A11y.Node_Ids.From_Natural (Id),
+                            Has_Child => True,
+                            Index     => Gone.Position,
+                            Has_Index => True),
+                           Queued);
+                        if A11y.Results.Succeeded (Queued) then
+                           Delivered := Delivered + 1;
+                        end if;
                      end if;
-                  end loop;
-                  if Parent in 1 .. Natural (Tree.Nodes.Length) then
-                     Last_Delivered := Last_Delivered + 1;
-                     A11y.Linux.ATSPi_Backend_Sessions.Queue_Tree_Event_Signal
-                       (Session,
-                        (Sequence  => Last_Delivered,
-                         Timestamp => Ada.Calendar.Clock,
-                         Source    => A11y.Node_Ids.From_Natural (Parent),
-                         Kind      => A11y.Events.Child_Removed,
-                         Revision  => A11y.Initial_Revision),
-                        (Parent    => A11y.Node_Ids.From_Natural (Parent),
-                         Child     => A11y.Node_Ids.From_Natural (Index),
-                         Has_Child => True,
-                         Index     => Position,
-                         Has_Index => True),
-                        Queued);
-                     if A11y.Results.Succeeded (Queued) then
-                        Delivered := Delivered + 1;
-                     end if;
-                  end if;
-               end;
-            end loop;
+                  end;
+               end loop;
+            end;
          end if;
 
-         Last_Signatures := Signatures;
+         --  Remember the publication by id.
+         Last_Published.Clear;
+         declare
+            Children : Id_Maps.Map;  --  children counted so far, by parent id image
+         begin
+            for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
+               declare
+                  Parent : constant Natural := Id_At (Tree, Tree.Nodes (Index).Parent);
+                  Key    : constant Unbounded_String := To_Unbounded_String (Natural'Image (Parent));
+                  Place  : constant Positive := (if Children.Contains (Key) then Children.Element (Key) + 1 else 1);
+               begin
+                  Children.Include (Key, Place);
+                  Last_Published.Include
+                    (Id_At (Tree, Index),
+                     (Signature => Signatures (Index), Parent => Parent, Position => Place));
+               end;
+            end loop;
+         end;
+         Last_Ids := Tree.Ids;
          Last_Focus := Focus;
-         Last_Parents.Clear;
-         for Item of Tree.Nodes loop
-            Last_Parents.Append (Item.Parent);
-         end loop;
       end;
       if A11y.Results.Failed (Result) then
          Trace ("events not delivered (" & Result.Status'Image & ", " & Delivered'Image
@@ -556,6 +691,24 @@ package body A11ykit.Provider is
       end if;
    end Publish;
 
+   --  The id the last publication gave the node at Index (of the tree under
+   --  the application node), and the index of the node it gave Id.
+   function Published_Id (Index : Positive) return Natural is
+     (if Index <= Natural (Last_Ids.Length) then Last_Ids (Index) else Index);
+
+   function Published_Index (Id : Natural) return Natural is
+   begin
+      if Last_Ids.Is_Empty then
+         return Id;
+      end if;
+      for Index in Last_Ids.First_Index .. Last_Ids.Last_Index loop
+         if Last_Ids (Index) = Id then
+            return Index;
+         end if;
+      end loop;
+      return 0;
+   end Published_Index;
+
    procedure Set_Active (Active : Boolean) is
       Result : A11y.Results.Result;
    begin
@@ -575,7 +728,7 @@ package body A11ykit.Provider is
           --  (node 2, under the application node).
           Source    =>
             A11y.Node_Ids.From_Natural
-              ((if Active_Window (Last_Tree) = 0 then 2 else Active_Window (Last_Tree) + 1)),
+              (Published_Id ((if Active_Window (Last_Tree) = 0 then 2 else Active_Window (Last_Tree) + 1))),
           Kind      => (if Active then A11y.Events.Window_Activated else A11y.Events.Window_Deactivated),
           Revision  => A11y.Initial_Revision),
          Result);
@@ -595,7 +748,7 @@ package body A11ykit.Provider is
       while A11y.Linux.ATSPi_Requests.Pop (Raw) loop
          declare
             --  Published under the application node, so one index on.
-            Index : constant Integer := A11y.Node_Ids.To_Natural (Raw.Node) - 1;
+            Index : constant Integer := Published_Index (A11y.Node_Ids.To_Natural (Raw.Node)) - 1;
          begin
             if Index in Last_Tree.Nodes.First_Index .. Last_Tree.Nodes.Last_Index then
                Item :=

@@ -29,6 +29,10 @@ package A11ykit.Tree is
    type Accessibility_Tree is record
       Nodes   : Node_Vectors.Vector;
       Focused : Natural := 0;  --  Index of the focused node, or 0 for none.
+      --  The id each node is published under, by index; empty publishes each
+      --  node under its index. A provider that keeps a node's id while nodes
+      --  around it come and go fills it.
+      Ids     : Index_Vectors.Vector;
    end record;
 
    --  Build a tree from a flat node list by nesting nodes geometrically: each
