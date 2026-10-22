@@ -10,6 +10,7 @@ with A11y.MacOS_Backend.NSAccessibility_Properties;
 with A11y.MacOS_Backend.NSAccessibility_Provider_Boundary;
 with A11y.Geometry;
 with A11y.Native_Identity;
+with A11y.Native_Requests;
 with A11y.Node_Ids;
 with A11y.Relations;
 with A11y.Semantic_Snapshots;
@@ -210,6 +211,20 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
       View.Dispatched := True;
       View.Last_Status := Reply.Status;
       Routed := Reply.Payload;
+
+      --  A press, or the focus set, that the screen reader asked of an
+      --  element is the application's to carry out: hand it over.
+      if A11y.Node_Ids.Is_Valid (View.Snapshots.Properties.Id) then
+         if Selector = ABI.Selector_Code (ABI.Accessibility_Perform_Action)
+           and then Reply.Status = A11y.Results.Success
+         then
+            A11y.Native_Requests.Push ((A11y.Native_Requests.Activate, View.Snapshots.Properties.Id));
+         elsif Selector = ABI.Selector_Code (ABI.Accessibility_Set_Value)
+           and then Operand = ABI.Attribute_Code (A11y.MacOS_Backend.NSAccessibility_Properties.Focused)
+         then
+            A11y.Native_Requests.Push ((A11y.Native_Requests.Focus, View.Snapshots.Properties.Id));
+         end if;
+      end if;
       return Reply.Status = A11y.Results.Success;
    exception
       when others =>
@@ -701,7 +716,13 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
                  Routed.Children;
             begin
                for Child of Children loop
-                  if not Add_Node (Child) then
+                  --  Another window's own node hangs under the first window
+                  --  in the tree; it is shown in its own window, not here.
+                  if A11y.Node_Ids.To_Natural (Child) in View.Window_Of'Range
+                    and then View.Window_Of (A11y.Node_Ids.To_Natural (Child)) = A11y.Node_Ids.To_Natural (Child)
+                  then
+                     null;
+                  elsif not Add_Node (Child) then
                      return Failure;
                   end if;
                end loop;

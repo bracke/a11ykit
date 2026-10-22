@@ -259,6 +259,25 @@ package A11y.MacOS_Backend.NSAccessibility_Native_Bridge is
    with Import, Convention => C,
         External_Name => "a11y_nsax_attach_process_root_to_window";
 
+   --  Show the element of Node (an element code), a top-level node of the
+   --  published tree, in the application's further window Window.
+   function Attach_Node_To_Window
+     (Host   : System.Address;
+      Window : System.Address;
+      Node   : Native_UInt64)
+      return Native_Status
+   with Import, Convention => C,
+        External_Name => "a11y_nsax_attach_node_to_window";
+
+   --  Post Notification on the element of Node (an element code).
+   function Post_Notification_For_Node
+     (Host         : System.Address;
+      Node         : Native_UInt64;
+      Notification : Native_UInt32)
+      return Native_Status
+   with Import, Convention => C,
+        External_Name => "a11y_nsax_post_notification_for_node";
+
    function Post_Notification_For_Object
      (Object       : System.Address;
       Notification : Native_UInt32)

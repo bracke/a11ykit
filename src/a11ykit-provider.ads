@@ -42,12 +42,14 @@ package A11ykit.Provider is
    --  @param Tree The accessibility tree to publish.
    procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree);
 
-   --  Expose the published tree through the application's own window, the
-   --  one a screen reader looks at: its native handle (an HWND on Windows, an
-   --  NSWindow on macOS). Call it once the window exists; it holds for later
-   --  publishes. Linux reaches the tree through the accessibility bus and
-   --  needs no window, so there it does nothing.
-   procedure Attach_Window (Window : System.Address);
+   --  Expose the published tree through the application's own windows, the
+   --  ones a screen reader looks at: Window is the native handle (an HWND on
+   --  Windows, an NSWindow on macOS) of the window showing the tree's
+   --  Top_Level-th node without a parent, counted in tree order. Call it once
+   --  the window exists, and again when the windows change; it holds for
+   --  later publishes. Linux reaches the tree through the accessibility bus
+   --  and needs no window, so there it does nothing.
+   procedure Attach_Window (Window : System.Address; Top_Level : Positive := 1);
 
    --  Answer whatever the host's screen reader has asked since the last call,
    --  from the most recently published tree, without waiting. A screen reader

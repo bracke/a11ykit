@@ -202,7 +202,8 @@ package body A11ykit.Compatibility is
          end;
       end loop;
 
-      if Root_Count /= 1 then
+      --  One window, or several side by side: each parentless node is one.
+      if Root_Count = 0 then
          return (Status => A11y.Results.Invalid_State);
       end if;
 
@@ -353,7 +354,7 @@ package body A11ykit.Compatibility is
                   return;
                end if;
 
-               if Tree.Nodes (Index).Parent = 0 then
+               if Tree.Nodes (Index).Parent = 0 and then Root_Index = 0 then
                   Root := Created (Index);
                   Root_Index := Index;
                end if;
@@ -371,6 +372,22 @@ package body A11ykit.Compatibility is
             return;
          end if;
          Attached (Root_Index) := True;
+
+         --  Further windows go under the first, as in the semantic tree.
+         for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
+            if Tree.Nodes (Index).Parent = 0 and then Index /= Root_Index then
+               A11y.Sessions.Attach
+                 (Self   => Session,
+                  Parent => Root,
+                  Child  => Created (Index),
+                  Result => Check_Result);
+               if A11y.Results.Failed (Check_Result) then
+                  Result := Check_Result;
+                  return;
+               end if;
+               Attached (Index) := True;
+            end if;
+         end loop;
 
          --  Build accepts a flat list in reading order, so a geometrically
          --  inferred parent may occur after its child in that list. Attach each
@@ -452,9 +469,23 @@ package body A11ykit.Compatibility is
          Attached : Attachment_Map := [others => False];
          Path     : Index_Path (1 .. Natural (Tree.Nodes.Length));
       begin
+         --  The caller has set the first parentless node as the root. A
+         --  tree of several windows has more: each further one goes under the
+         --  root, so every node is in the tree and a window's descendants
+         --  have a parent to hang from. A provider showing the windows apart
+         --  knows them for what they are by their parentless nodes.
          for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
             if Tree.Nodes (Index).Parent = 0 then
-               Attached (Index) := True;  --  the root, set by the caller
+               if A11y.Node_Ids.Is_Valid (A11y.Trees.Root (Target))
+                 and then not A11y.Node_Ids."=" (Node_Id_For_Index (Tree, Index), A11y.Trees.Root (Target))
+               then
+                  A11y.Trees.Attach
+                    (Target, A11y.Trees.Root (Target), Node_Id_For_Index (Tree, Index), Result);
+                  if A11y.Results.Failed (Result) then
+                     return;
+                  end if;
+               end if;
+               Attached (Index) := True;
             end if;
          end loop;
 

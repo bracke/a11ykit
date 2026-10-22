@@ -326,7 +326,7 @@ package body A11ykit.Provider is
    end Serve;
 
    --  The bus reaches the tree without a window.
-   procedure Attach_Window (Window : System.Address) is null;
+   procedure Attach_Window (Window : System.Address; Top_Level : Positive := 1) is null;
 
    procedure Service is
    begin

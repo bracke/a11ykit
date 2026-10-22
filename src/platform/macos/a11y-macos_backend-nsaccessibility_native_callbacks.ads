@@ -5,8 +5,14 @@ with A11y.MacOS_Backend.NSAccessibility_Element_Registry;
 with A11y.MacOS_Backend.NSAccessibility_Native_Bridge;
 with A11y.MacOS_Backend.NSAccessibility_Request_Router;
 with A11y.Results;
+with A11y.Trees;
 
 package A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
+
+   --  For each node of the published tree, the top-level node (a window of
+   --  the application) it belongs to; 0 for a node not in the tree.
+   type Window_Table is
+     array (Positive range 1 .. A11y.Trees.Max_Attached_Nodes) of Natural;
 
    type Callback_Context is limited record
       Registry :
@@ -17,6 +23,7 @@ package A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
       Snapshots :
         access A11y.MacOS_Backend.NSAccessibility_Request_Router
           .Snapshot_Bundle;
+      Window_Of : Window_Table := [others => 0];
       Dispatched : Boolean := False;
       Last_Report :
         A11y.MacOS_Backend.NSAccessibility_ABI_Surface

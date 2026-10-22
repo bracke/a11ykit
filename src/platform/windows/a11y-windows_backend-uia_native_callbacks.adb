@@ -17,6 +17,7 @@ with A11y.Windows_Backend.UIA_Values;
 with A11y.Geometry;
 with A11y.States;
 with A11y.Native_Identity;
+with A11y.Native_Requests;
 with A11y.Node_Ids;
 with A11y.Semantic_Snapshots;
 with A11y.Values;
@@ -394,6 +395,22 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       Context_View.Last_Status := Reply.Status;
       Context_View.Last_HResult_Code :=
         Exports.HRESULT_Code (Reply.HResult);
+
+      --  An invoke or a focus the screen reader asked for is the
+      --  application's to carry out: hand it over, for the element asked.
+      if Reply.HResult = Boundary.S_OK then
+         if Request_Frame.Method_Code
+              = A11y.Windows_Backend.UIA_ABI_Surface.Method_Code
+                  (A11y.Windows_Backend.UIA_ABI_Surface.Invoke_Provider_Invoke)
+         then
+            A11y.Native_Requests.Push ((A11y.Native_Requests.Activate, Context_View.Snapshots.Properties.Id));
+         elsif Request_Frame.Method_Code
+              = A11y.Windows_Backend.UIA_ABI_Surface.Method_Code
+                  (A11y.Windows_Backend.UIA_ABI_Surface.Fragment_Set_Focus)
+         then
+            A11y.Native_Requests.Push ((A11y.Native_Requests.Focus, Context_View.Snapshots.Properties.Id));
+         end if;
+      end if;
       return Native.Native_UInt32 (Context_View.Last_HResult_Code);
    exception
       when others =>
@@ -1448,6 +1465,57 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
    end Copy_Window_Query_Callback;
 
 
+   procedure Ensure_Export
+     (Context  : in out Callback_Context;
+      Node     : Natural;
+      Provider : out Interfaces.Unsigned_64;
+      Object   : out Interfaces.Unsigned_64)
+   is
+      Report : A11y.Windows_Backend.UIA_Public_Roots.Public_Root_Export_Report;
+   begin
+      Provider := 0;
+      Object := 0;
+      if Node not in Context.Exports'Range
+        or else Context.Registry = null
+        or else Context.Object_Table = null
+        or else Context.Snapshots = null
+      then
+         return;
+      end if;
+
+      if Context.Exports (Node).Provider = 0 then
+         A11y.Windows_Backend.UIA_Public_Roots.Export_Public_Root
+           (Context.Registry.all,
+            Context.Object_Table.all,
+            Context.Snapshots.Fragment.Session,
+            Context.Snapshots.Fragment.Fragment_Root,
+            A11y.Node_Ids.From_Natural (Node),
+            Report);
+         --  Only the root is a fragment root, so a child's report says
+         --  that interface is missing; what an element needs is the object
+         --  and its fragment interface.
+         if not Report.Object_Exported
+           or else not Report.Fragment_Interface_Queryable
+           or else not A11y.Windows_Backend.UIA_Provider_Registry.Is_Valid (Report.Provider)
+         then
+            return;
+         end if;
+         Context.Exports (Node) :=
+           (Provider =>
+              Native.Native_UInt64 (A11y.Windows_Backend.UIA_Provider_Registry.To_Natural (Report.Provider)),
+            Object   =>
+              Native.Native_UInt64
+                (A11y.Windows_Backend.UIA_COM_Object_Exports.To_Natural (Report.Object_Export.Token)));
+      end if;
+
+      Provider := Context.Exports (Node).Provider;
+      Object := Context.Exports (Node).Object;
+   exception
+      when others =>
+         Provider := 0;
+         Object := 0;
+   end Ensure_Export;
+
    function Navigation_Callback
      (Frame           : access constant Native.Native_UInt64;
       Direction       : Native.Native_UInt32;
@@ -1461,10 +1529,25 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
       View       : Context_Conversions.Object_Pointer;
       Frame_View : Frame_Conversions.Object_Pointer;
       Node       : A11y.Node_Ids.Node_Id;
-      Way        : Fragments.Navigate_Direction;
-      Reply      : Fragments.Fragment_Reply;
-      Target     : A11y.Node_Ids.Node_Id;
-      Report     : A11y.Windows_Backend.UIA_Public_Roots.Public_Root_Export_Report;
+      Target     : A11y.Node_Ids.Node_Id := A11y.Node_Ids.No_Node;
+
+      function Window_Of (Item : A11y.Node_Ids.Node_Id) return Natural is
+        (if A11y.Node_Ids.To_Natural (Item) in View.Window_Of'Range
+         then View.Window_Of (A11y.Node_Ids.To_Natural (Item)) else 0);
+
+      --  A window's own node: the root of its fragment.
+      function Is_Window (Item : A11y.Node_Ids.Node_Id) return Boolean is
+        (A11y.Node_Ids.Is_Valid (Item) and then Window_Of (Item) = A11y.Node_Ids.To_Natural (Item));
+
+      function Step (From : A11y.Node_Ids.Node_Id; Way : Fragments.Navigate_Direction)
+        return A11y.Node_Ids.Node_Id
+      is
+         Reply : Fragments.Fragment_Reply;
+      begin
+         View.Snapshots.Fragment.Node := From;
+         Reply := Fragments.Navigate (View.Snapshots.Fragment, Way);
+         return (if Reply.Found then Reply.Node else A11y.Node_Ids.No_Node);
+      end Step;
    begin
       if Frame = null
         or else Target_Provider = null
@@ -1483,7 +1566,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
         or else View.Registry = null
         or else View.Object_Table = null
         or else View.Snapshots = null
-        or else Direction > 4
+        or else Direction > 5
       then
          return 16#8007_0057#;
       end if;
@@ -1493,50 +1576,38 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
          return 0;
       end if;
 
-      Way :=
-        (case Direction is
-            when 0 => Fragments.Parent,
-            when 1 => Fragments.First_Child,
-            when 2 => Fragments.Last_Child,
-            when 3 => Fragments.Next_Sibling,
-            when others => Fragments.Previous_Sibling);
-      View.Snapshots.Fragment.Node := Node;
-      Reply := Fragments.Navigate (View.Snapshots.Fragment, Way);
-      if not Reply.Found or else not A11y.Node_Ids.Is_Valid (Reply.Node) then
-         return 0;
-      end if;
-      Target := Reply.Node;
-      if A11y.Node_Ids.To_Natural (Target) not in View.Exports'Range then
-         return 0;
-      end if;
+      case Direction is
+         when 0 =>
+            if not Is_Window (Node) then
+               Target := Step (Node, Fragments.Parent);
+            end if;
+         when 1 | 2 =>
+            --  Another window's node sits among the first window's children
+            --  in the tree; skip it.
+            Target := Step (Node, (if Direction = 1 then Fragments.First_Child else Fragments.Last_Child));
+            while Is_Window (Target) loop
+               Target :=
+                 Step (Target, (if Direction = 1 then Fragments.Next_Sibling else Fragments.Previous_Sibling));
+            end loop;
+         when 3 | 4 =>
+            if not Is_Window (Node) then
+               Target := Step (Node, (if Direction = 3 then Fragments.Next_Sibling else Fragments.Previous_Sibling));
+               while Is_Window (Target) loop
+                  Target :=
+                    Step (Target, (if Direction = 3 then Fragments.Next_Sibling else Fragments.Previous_Sibling));
+               end loop;
+            end if;
+         when others =>
+            --  The focused element, if it is in the asking element's window.
+            Target := View.Snapshots.Fragment.Focused_Node;
+            if A11y.Node_Ids.Is_Valid (Target) and then Window_Of (Target) /= Window_Of (Node) then
+               Target := A11y.Node_Ids.No_Node;
+            end if;
+      end case;
 
-      if View.Exports (A11y.Node_Ids.To_Natural (Target)).Provider = 0 then
-         A11y.Windows_Backend.UIA_Public_Roots.Export_Public_Root
-           (View.Registry.all,
-            View.Object_Table.all,
-            View.Snapshots.Fragment.Session,
-            View.Snapshots.Fragment.Fragment_Root,
-            Target,
-            Report);
-         --  Only the root is a fragment root, so a child's report says
-         --  that interface is missing; what navigation needs is the object
-         --  and its fragment interface.
-         if not Report.Object_Exported
-           or else not Report.Fragment_Interface_Queryable
-           or else not A11y.Windows_Backend.UIA_Provider_Registry.Is_Valid (Report.Provider)
-         then
-            return 0;
-         end if;
-         View.Exports (A11y.Node_Ids.To_Natural (Target)) :=
-           (Provider =>
-              Native.Native_UInt64 (A11y.Windows_Backend.UIA_Provider_Registry.To_Natural (Report.Provider)),
-            Object   =>
-              Native.Native_UInt64
-                (A11y.Windows_Backend.UIA_COM_Object_Exports.To_Natural (Report.Object_Export.Token)));
+      if A11y.Node_Ids.Is_Valid (Target) then
+         Ensure_Export (View.all, A11y.Node_Ids.To_Natural (Target), Target_Provider.all, Target_Object.all);
       end if;
-
-      Target_Provider.all := View.Exports (A11y.Node_Ids.To_Natural (Target)).Provider;
-      Target_Object.all := View.Exports (A11y.Node_Ids.To_Natural (Target)).Object;
       return 0;
    exception
       when others =>

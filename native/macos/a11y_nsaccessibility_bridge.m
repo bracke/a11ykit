@@ -616,6 +616,8 @@ static NSString *a11y_nsax_element_key(unsigned long long session,
 - (id)initWithRoot:(A11yNSAXElement *)root;
 - (int)a11yPostNotificationCode:(unsigned int)notification;
 - (int)a11yAttachToWindow:(NSWindow *)window;
+- (int)a11yAttachNode:(unsigned long long)node toWindow:(NSWindow *)window;
+- (int)a11yPostNotificationCode:(unsigned int)notification forNode:(unsigned long long)node;
 @end
 
 @implementation A11yNSAXElement
@@ -1018,6 +1020,39 @@ static NSString *a11y_nsax_element_key(unsigned long long session,
     [a11y_root a11yAttachToParent:content window:window];
     [content setAccessibilityChildren:[NSArray arrayWithObject:a11y_root]];
     [a11y_window orderOut:nil];
+    return 1;
+}
+
+/* Show the element of Node in Window, a further window of the application,
+   as its content view's child. */
+- (int)a11yAttachNode:(unsigned long long)node toWindow:(NSWindow *)window {
+    NSView *content = [window contentView];
+    A11yNSAXElement *element;
+    if (content == nil || a11y_root == nil) {
+        return 0;
+    }
+    element = [a11y_root a11yCreateElementForNode:node];
+    if (element == nil) {
+        return 0;
+    }
+    [element a11yAttachToParent:content window:window];
+    [content setAccessibilityChildren:[NSArray arrayWithObject:element]];
+    return 1;
+}
+
+/* Post Notification on the element of Node rather than the root: a focus
+   moved there, or that window's children changed. */
+- (int)a11yPostNotificationCode:(unsigned int)notification forNode:(unsigned long long)node {
+    NSString *name = a11y_nsax_notification_name(notification);
+    A11yNSAXElement *element;
+    if (name == nil || a11y_root == nil) {
+        return 0;
+    }
+    element = [a11y_root a11yCreateElementForNode:node];
+    if (element == nil) {
+        return 0;
+    }
+    NSAccessibilityPostNotification(element, name);
     return 1;
 }
 
@@ -1688,6 +1723,49 @@ int a11y_nsax_attach_process_root_to_window(void *host, void *window) {
 #else
     (void)host;
     (void)window;
+    return 0;
+#endif
+}
+
+/* Show the element of Node, a top-level node of the published tree, in the
+   application's further window Window (an NSWindow). Returns 1 when shown. */
+int a11y_nsax_attach_node_to_window(void *host, void *window, unsigned long long node) {
+#if defined(__APPLE__) && defined(__MACH__)
+    @try {
+        if (host == 0 || window == 0 || node == 0
+            || ![(id)host isKindOfClass:[A11yNSAXProcessRootHost class]]
+            || ![(id)window isKindOfClass:[NSWindow class]]) {
+            return 0;
+        }
+        return [(A11yNSAXProcessRootHost *)host a11yAttachNode:node toWindow:(NSWindow *)window];
+    } @catch (...) {
+        return 0;
+    }
+#else
+    (void)host;
+    (void)window;
+    (void)node;
+    return 0;
+#endif
+}
+
+/* Post Notification on the element of Node. Returns 1 when posted. */
+int a11y_nsax_post_notification_for_node(void *host, unsigned long long node,
+                                         unsigned int notification) {
+#if defined(__APPLE__) && defined(__MACH__)
+    @try {
+        if (host == 0 || node == 0
+            || ![(id)host isKindOfClass:[A11yNSAXProcessRootHost class]]) {
+            return 0;
+        }
+        return [(A11yNSAXProcessRootHost *)host a11yPostNotificationCode:notification forNode:node];
+    } @catch (...) {
+        return 0;
+    }
+#else
+    (void)host;
+    (void)node;
+    (void)notification;
     return 0;
 #endif
 }

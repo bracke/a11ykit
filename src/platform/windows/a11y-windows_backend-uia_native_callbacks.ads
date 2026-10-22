@@ -22,6 +22,11 @@ package A11y.Windows_Backend.UIA_Native_Callbacks is
    type Node_Export_Table is
      array (Positive range 1 .. A11y.Trees.Max_Attached_Nodes) of Node_Export;
 
+   --  For each node of the published tree, the top-level node (a window of
+   --  the application) it belongs to; 0 for a node not in the tree.
+   type Window_Table is
+     array (Positive range 1 .. A11y.Trees.Max_Attached_Nodes) of Natural;
+
    type Callback_Context is limited record
       Object_Table :
         access A11y.Windows_Backend.UIA_COM_Object_Exports
@@ -34,6 +39,7 @@ package A11y.Windows_Backend.UIA_Native_Callbacks is
         access A11y.Windows_Backend.UIA_Request_Router
           .Snapshot_Bundle;
       Exports : Node_Export_Table;
+      Window_Of : Window_Table := [others => 0];
       Dispatched : Boolean := False;
       Last_Report :
         A11y.Windows_Backend.UIA_COM_Live_Exports
@@ -149,10 +155,20 @@ package A11y.Windows_Backend.UIA_Native_Callbacks is
       return A11y.Windows_Backend.UIA_Native_Bridge.Native_UInt32
    with Convention => C;
 
+   --  The provider and COM object Node is reached through, exporting it on
+   --  first use; zero when it cannot be.
+   procedure Ensure_Export
+     (Context  : in out Callback_Context;
+      Node     : Natural;
+      Provider : out Interfaces.Unsigned_64;
+      Object   : out Interfaces.Unsigned_64);
+
    --  Where navigation from the provider Frame names (session, provider,
    --  object token) leads: Direction 0 parent, 1 first child, 2 last child,
-   --  3 next sibling, 4 previous sibling. Sets the target's provider and
-   --  object token, exporting it on first use; zero when there is none.
+   --  3 next sibling, 4 previous sibling, 5 the focused element. A window's
+   --  top-level node is the root of its own fragment: navigation does not
+   --  leave it. Sets the target's provider and object token, exporting it on
+   --  first use; zero when there is none.
    function Navigation_Callback
      (Frame           :
         access constant A11y.Windows_Backend.UIA_Native_Bridge.Native_UInt64;

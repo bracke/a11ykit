@@ -8734,6 +8734,93 @@ begin
          "UIA navigation leads from an item back to its parent");
    end;
 
+   --  Two windows in one tree: navigation keeps to each window, a window's
+   --  node has no parent or siblings, and the focus is asked per window.
+   declare
+      use Ada.Strings.Unbounded;
+
+      package Native renames A11y.Windows_Backend.UIA_Native_Bridge;
+      package Callbacks renames A11y.Windows_Backend.UIA_Native_Callbacks;
+
+      type Bundle_Access is access A11y.Windows_Backend.UIA_Request_Router.Snapshot_Bundle;
+      type Registry_Access is access A11y.Windows_Backend.UIA_Provider_Registry.Provider_Registry;
+      type Table_Access is access A11y.Windows_Backend.UIA_COM_Object_Exports.COM_Object_Export_Table;
+
+      Flat : A11ykit.Tree.Node_Vectors.Vector;
+      Tree : A11ykit.Tree.Accessibility_Tree;
+      Bundle : constant Bundle_Access := new A11y.Windows_Backend.UIA_Request_Router.Snapshot_Bundle;
+      Providers : constant Registry_Access := new A11y.Windows_Backend.UIA_Provider_Registry.Provider_Registry;
+      Objects : constant Table_Access := new A11y.Windows_Backend.UIA_COM_Object_Exports.COM_Object_Export_Table;
+      Session : constant A11y.Native_Identity.Backend_Session_Id := A11y.Native_Identity.Create_Session;
+      Root : A11y.Node_Ids.Node_Id;
+      Result : A11y.Results.Result;
+      Context : aliased Callbacks.Callback_Context;
+      Frame : array (0 .. 7) of aliased Native.Native_UInt64 := [others => 0];
+      Target_Provider : aliased Native.Native_UInt64 := 0;
+      Target_Object : aliased Native.Native_UInt64 := 0;
+
+      function Item (Name : String; X, Y, W, H : Integer; Parent : Natural) return A11ykit.Tree.Node is
+        (Node_Role   => (if Parent = 0 then A11ykit.Role_Window else A11ykit.Role_Button),
+         Bounds      => (X => X, Y => Y, Width => W, Height => H),
+         Name        => To_Unbounded_String (Name),
+         Description => Null_Unbounded_String,
+         Node_State  => (others => <>),
+         Parent      => Parent);
+
+      --  Where Direction leads from Node; 0 for nowhere.
+      function Go (Node : Natural; Direction : Native.Native_UInt32) return Natural is
+         Provider, Object : Interfaces.Unsigned_64;
+      begin
+         Callbacks.Ensure_Export (Context, Node, Provider, Object);
+         Frame := [others => 0];
+         Frame (0) := Native.Native_UInt64 (A11y.Native_Identity.To_Natural (Session));
+         Frame (1) := Provider;
+         Frame (2) := Object;
+         if Callbacks.Navigation_Callback
+              (Frame (0)'Access, Direction, Target_Provider'Access, Target_Object'Access, Context'Address) /= 0
+           or else Target_Provider = 0
+         then
+            return 0;
+         end if;
+         for Index in Context.Exports'Range loop
+            if Context.Exports (Index).Provider = Target_Provider then
+               return Index;
+            end if;
+         end loop;
+         return 0;
+      end Go;
+   begin
+      --  Two windows side by side, as files publishes them: 1 and 3, each
+      --  with a button.
+      Tree.Nodes.Append (Item ("First window", 0, 0, 300, 200, 0));
+      Tree.Nodes.Append (Item ("Open", 10, 10, 50, 20, 1));
+      Tree.Nodes.Append (Item ("Second window", 400, 0, 300, 200, 0));
+      Tree.Nodes.Append (Item ("Close", 410, 10, 50, 20, 3));
+      Tree.Focused := 4;
+      pragma Unreferenced (Flat);
+
+      Root := A11ykit.UIA_Snapshots.Root_Node (Tree, Result);
+      A11ykit.UIA_Snapshots.Build_Snapshots (Tree, Root, Session, Bundle.all, Result);
+      Check (A11y.Results.Succeeded (Result), "UIA snapshot builds for a tree of two windows: " & Result.Status'Image);
+
+      Context.Registry := Providers.all'Unchecked_Access;
+      Context.Object_Table := Objects.all'Unchecked_Access;
+      Context.Snapshots := Bundle.all'Unchecked_Access;
+      Context.Window_Of (1) := 1;
+      Context.Window_Of (2) := 1;
+      Context.Window_Of (3) := 3;
+      Context.Window_Of (4) := 3;
+
+      Check (Go (1, 1) = 2 and then Go (1, 2) = 2 and then Go (2, 3) = 0,
+             "UIA navigation in the first window does not reach the second window");
+      Check (Go (3, 0) = 0 and then Go (3, 3) = 0 and then Go (3, 4) = 0,
+             "UIA navigation leaves a window's node without parent or siblings");
+      Check (Go (3, 1) = 4 and then Go (4, 0) = 3,
+             "UIA navigation inside the second window");
+      Check (Go (3, 5) = 4 and then Go (1, 5) = 0,
+             "UIA focus is answered by the window that holds it");
+   end;
+
    if Failures = 0 then
       Ada.Text_IO.Put_Line ("All UIA router tests passed.");
       Ada.Command_Line.Set_Exit_Status (Ada.Command_Line.Success);

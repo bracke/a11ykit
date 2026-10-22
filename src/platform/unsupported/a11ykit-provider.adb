@@ -29,7 +29,7 @@ package body A11ykit.Provider is
    --  Queries reach this host's provider through the window system's own
    --  message loop, which the application already pumps.
    --  The bus reaches the tree without a window.
-   procedure Attach_Window (Window : System.Address) is null;
+   procedure Attach_Window (Window : System.Address; Top_Level : Positive := 1) is null;
 
    procedure Service is null;
 

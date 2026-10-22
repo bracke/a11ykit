@@ -236,11 +236,20 @@ package body A11ykit_Compatibility_Tests is
               A11y.Results.Invalid_State,
             "compatibility rejects empty legacy trees");
 
+         --  Several parentless nodes are an application's windows side by
+         --  side: accepted, and a session builds from them, the further
+         --  windows under the first.
          Set_Parent (Bad, 2, 0);
-         Check
-           (A11ykit.Compatibility.Validate_Tree (Bad).Status =
-              A11y.Results.Invalid_State,
-            "compatibility rejects legacy trees with multiple roots");
+         declare
+            Windows : A11y.Sessions.Semantic_Session;
+            Built   : A11y.Results.Result;
+         begin
+            A11ykit.Compatibility.Populate_Session (Bad, Windows, Built);
+            Check
+              (A11ykit.Compatibility.Validate_Tree (Bad).Status = A11y.Results.Success
+               and then A11y.Results.Succeeded (Built),
+               "compatibility accepts several windows side by side");
+         end;
 
          Bad := Tree;
          Set_Parent (Bad, 2, 99);

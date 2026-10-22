@@ -7,6 +7,7 @@ with A11ykit.Provider_Runtime;
 
 with A11y.Events;
 with A11y.Native_Identity;
+with A11y.Native_Requests;
 with A11y.Node_Ids;
 with A11y.Platforms;
 with A11y.Results;
@@ -38,6 +39,7 @@ package body A11ykit.Provider is
    use type A11y.Native_Identity.Backend_Session_Id;
    use type Native.Native_UInt32;
    use type Native.Native_HResult;
+   use type Native.Native_UInt64;
    use type System.Address;
 
    Registry : aliased Registry_API.Provider_Registry;
@@ -56,9 +58,20 @@ package body A11ykit.Provider is
    Exported_Object : Exports.COM_Object_Token := Exports.No_COM_Object;
    Provider_Host : System.Address := System.Null_Address;
 
-   --  The application's window the provider answers through, once it has
-   --  said which (Attach_Window); null until then.
-   Attached_Window : System.Address := System.Null_Address;
+   --  The application's windows the provider answers through, by the
+   --  top-level node each shows (Attach_Window); null until named. The first
+   --  shows the tree's root, through the host's own provider; each further
+   --  one is attached to its node's element, noted in Attached_Node.
+   Max_Windows : constant := 16;
+   type Window_Handles is array (1 .. Max_Windows) of System.Address;
+   type Window_Nodes is array (1 .. Max_Windows) of Natural;
+   Windows       : Window_Handles := [others => System.Null_Address];
+   Attached_Node : Window_Nodes := [others => 0];
+   Attached_Window : System.Address renames Windows (1);
+
+   --  The tree last published, to turn a request's node into the index and
+   --  bounds the application acts on.
+   Last_Tree : A11ykit.Tree.Accessibility_Tree;
 
    --  The root the host was exported for and the focus last announced, so a
    --  republish of the same window keeps its host and says only what moved.
@@ -288,10 +301,95 @@ package body A11ykit.Provider is
       end if;
    end Attach_Host;
 
-   procedure Attach_Window (Window : System.Address) is
+   --  The tree's nodes without a parent, the application's windows, in tree
+   --  order; and for each node the window it belongs to.
+   procedure Note_Windows (Tree : A11ykit.Tree.Accessibility_Tree; Tops : out Window_Nodes) is
+      Count : Natural := 0;
    begin
-      Attached_Window := Window;
-      Attach_Host;
+      Tops := [others => 0];
+      Callback_Context.Window_Of := [others => 0];
+      for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
+         if Tree.Nodes (Index).Parent = 0 then
+            Count := Count + 1;
+            if Count <= Max_Windows then
+               Tops (Count) := Index;
+            end if;
+         end if;
+         if Index in Callback_Context.Window_Of'Range then
+            declare
+               Current : Natural := Index;
+               Steps   : Natural := 0;
+            begin
+               while Tree.Nodes (Current).Parent /= 0 and then Steps < Natural (Tree.Nodes.Length) loop
+                  Current := Tree.Nodes (Current).Parent;
+                  Steps := Steps + 1;
+               end loop;
+               Callback_Context.Window_Of (Index) := Current;
+            end;
+         end if;
+      end loop;
+   end Note_Windows;
+
+   --  Attach each further window to its top-level node's element, where that
+   --  changed; the first window carries the host's own provider.
+   procedure Attach_Further_Windows is
+      Tops     : Window_Nodes;
+      Provider : Native.Native_UInt64;
+      Object   : Native.Native_UInt64;
+      Ignored  : Native.Native_UInt32;
+   begin
+      Note_Windows (Last_Tree, Tops);
+      for K in 2 .. Max_Windows loop
+         if Windows (K) /= System.Null_Address
+           and then Tops (K) /= 0
+           and then Attached_Node (K) /= Tops (K)
+           and then Provider_Host /= System.Null_Address
+         then
+            Callbacks.Ensure_Export (Callback_Context, Tops (K), Provider, Object);
+            if Provider /= 0 then
+               Ignored := Native.Attach_Element_To_Window (Provider_Host, Windows (K), Provider, Object);
+               Attached_Node (K) := Tops (K);
+            end if;
+         end if;
+      end loop;
+   end Attach_Further_Windows;
+
+   --  Raise Event_Id (or, with Structure, a children-changed event) on the
+   --  tree's node Node, in its window's fragment.
+   procedure Raise_On (Node : Natural; Event_Id : Native.Native_UInt32; Structure : Boolean := False) is
+      Window   : Natural;
+      Root_P, Root_O, Provider, Object : Native.Native_UInt64;
+      Ignored  : Native.Native_HResult;
+   begin
+      if Provider_Host = System.Null_Address
+        or else Node not in Callback_Context.Window_Of'Range
+      then
+         return;
+      end if;
+      Window := Callback_Context.Window_Of (Node);
+      Callbacks.Ensure_Export (Callback_Context, (if Window = 0 then Node else Window), Root_P, Root_O);
+      Callbacks.Ensure_Export (Callback_Context, Node, Provider, Object);
+      if Provider /= 0 then
+         Ignored :=
+           Native.Raise_Element_Event
+             (Provider_Host, Root_P, Provider, Object, Event_Id, (if Structure then 1 else 0));
+      end if;
+   end Raise_On;
+
+   procedure Attach_Window (Window : System.Address; Top_Level : Positive := 1) is
+   begin
+      if Top_Level > Max_Windows then
+         return;
+      end if;
+      if Windows (Top_Level) /= Window then
+         Attached_Node (Top_Level) := 0;
+      end if;
+      Windows (Top_Level) := Window;
+      if Top_Level = 1 then
+         Attach_Host;
+      elsif Published then
+         Attach_Further_Windows;
+      end if;
    end Attach_Window;
 
    procedure Start is
@@ -335,6 +433,7 @@ package body A11ykit.Provider is
    end Stop;
 
    procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
+      Changed : Boolean;
       type Semantic_Access is access A11y.Sessions.Semantic_Session;
       procedure Free is new Ada.Unchecked_Deallocation
         (A11y.Sessions.Semantic_Session, Semantic_Access);
@@ -346,6 +445,8 @@ package body A11ykit.Provider is
       Export_Report : A11y.Windows_Backend.UIA_Public_Roots
         .Public_Root_Export_Report;
    begin
+      Changed := not A11ykit.Tree."=" (Tree, Last_Tree);
+      Last_Tree := Tree;
       Root := Root_Node (Tree, Result);
       if A11y.Results.Failed (Result) then
          A11ykit.Provider_Runtime.Record_Publish_Result
@@ -381,14 +482,29 @@ package body A11ykit.Provider is
             return;
          end if;
 
+         Attach_Further_Windows;
+
+         --  What changed: each window's children, and the focus, raised on
+         --  the element it moved to.
+         if Changed then
+            declare
+               Tops : Window_Nodes;
+            begin
+               Note_Windows (Last_Tree, Tops);
+               for Top of Tops loop
+                  if Top /= 0 then
+                     Raise_On (Top, 0, Structure => True);
+                  end if;
+               end loop;
+            end;
+         end if;
          declare
             Focus : constant A11y.Node_Ids.Node_Id := Snapshots.Fragment.Focused_Node;
          begin
             if not A11y.Node_Ids."=" (Focus, Last_Focus) then
                Last_Focus := Focus;
-               if Native.Raise_Automation_Event (Provider_Host, 20_005) = 0 then
-                  Delivered := 1;
-               end if;
+               Raise_On (A11y.Node_Ids.To_Natural (Focus), 20_005);
+               Delivered := 1;
             end if;
          end;
 
@@ -440,7 +556,9 @@ package body A11ykit.Provider is
          end if;
          Native.Set_Callback_Provider_Host_Navigation
            (Provider_Host, Callbacks.Navigation_Callback'Access);
+         Attached_Node (2 .. Max_Windows) := [others => 0];
          Attach_Host;
+         Attach_Further_Windows;
       end if;
       if not Published then
          Stop;
@@ -482,14 +600,41 @@ package body A11ykit.Provider is
       end if;
    end Service;
 
-   --  This host's window system tells its screen reader about activation.
-   procedure Set_Active (Active : Boolean) is null;
+   --  The window system activates the window itself; announce where the
+   --  focus is in it, so the screen reader starts from there.
+   procedure Set_Active (Active : Boolean) is
+   begin
+      if Active and then Published and then A11y.Node_Ids.Is_Valid (Last_Focus) then
+         Raise_On (A11y.Node_Ids.To_Natural (Last_Focus), 20_005);
+      end if;
+   end Set_Active;
 
-   --  Requests from this host's screen reader are not routed back yet.
+   --  A press or focus the screen reader asked for, as the node's index in
+   --  the last published tree (whose node ids are those indices).
    function Next_Request (Item : out Request) return Boolean is
+      Raw : A11y.Native_Requests.Request;
    begin
       Item := (others => <>);
+      while A11y.Native_Requests.Pop (Raw) loop
+         declare
+            Index : constant Natural := A11y.Node_Ids.To_Natural (Raw.Node);
+         begin
+            if Index in Last_Tree.Nodes.First_Index .. Last_Tree.Nodes.Last_Index then
+               Item :=
+                 (Kind   =>
+                    (case Raw.Kind is
+                       when A11y.Native_Requests.Activate => Activate_Request,
+                       when A11y.Native_Requests.Focus    => Focus_Request),
+                  Node   => Index,
+                  Bounds => Last_Tree.Nodes (Index).Bounds);
+               return True;
+            end if;
+         end;
+      end loop;
       return False;
+   exception
+      when others =>
+         return False;
    end Next_Request;
 
    function Last_Publish_Status return A11y.Results.Status_Code is

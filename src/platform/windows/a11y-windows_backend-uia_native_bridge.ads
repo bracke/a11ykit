@@ -701,6 +701,31 @@ package A11y.Windows_Backend.UIA_Native_Bridge is
    with Import, Convention => C,
         External_Name => "a11y_uia_attach_callback_provider_host_window";
 
+   --  Make the application's further window Window answer for the element
+   --  Provider and Object name, as a fragment root of its own; 1 when it does.
+   function Attach_Element_To_Window
+     (Handle   : System.Address;
+      Window   : System.Address;
+      Provider : Native_UInt64;
+      Object   : Native_UInt64)
+      return Native_UInt32
+   with Import, Convention => C,
+        External_Name => "a11y_uia_attach_element_to_window";
+
+   --  Raise Event_Id on the element Provider and Object name, in the fragment
+   --  whose root Root_Provider names; Structure 1 raises a children-changed
+   --  structure event instead.
+   function Raise_Element_Event
+     (Handle        : System.Address;
+      Root_Provider : Native_UInt64;
+      Provider      : Native_UInt64;
+      Object        : Native_UInt64;
+      Event_Id      : Native_UInt32;
+      Structure     : Native_UInt32)
+      return Native_HResult
+   with Import, Convention => C,
+        External_Name => "a11y_uia_raise_element_event";
+
    type Navigation_Callback is access function
      (Frame           : access constant Native_UInt64;
       Direction       : Native_UInt32;
