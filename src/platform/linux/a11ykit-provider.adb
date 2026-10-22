@@ -481,16 +481,28 @@ package body A11ykit.Provider is
                declare
                   Parent : constant Natural := Last_Parents (Index);
                   Queued : A11y.Results.Result;
+                  --  Where the child sat among its parent's children.
+                  Position : Positive := 1;
                begin
+                  for Earlier in 1 .. Index - 1 loop
+                     if Last_Parents (Earlier) = Parent then
+                        Position := Position + 1;
+                     end if;
+                  end loop;
                   if Parent in 1 .. Natural (Tree.Nodes.Length) then
                      Last_Delivered := Last_Delivered + 1;
-                     A11y.Linux.ATSPi_Backend_Sessions.Queue_Event_Signal
+                     A11y.Linux.ATSPi_Backend_Sessions.Queue_Tree_Event_Signal
                        (Session,
                         (Sequence  => Last_Delivered,
                          Timestamp => Ada.Calendar.Clock,
                          Source    => A11y.Node_Ids.From_Natural (Parent),
                          Kind      => A11y.Events.Child_Removed,
                          Revision  => A11y.Initial_Revision),
+                        (Parent    => A11y.Node_Ids.From_Natural (Parent),
+                         Child     => A11y.Node_Ids.From_Natural (Index),
+                         Has_Child => True,
+                         Index     => Position,
+                         Has_Index => True),
                         Queued);
                      if A11y.Results.Succeeded (Queued) then
                         Delivered := Delivered + 1;

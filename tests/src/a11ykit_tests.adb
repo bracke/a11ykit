@@ -23555,7 +23555,10 @@ begin
          Reply_Serial   => 0,
          Status         => A11y.Results.Success,
          Object_Path    => To_Unbounded_String ("/org/a11y/atspi/cache"),
-         Event_Name     => Null_Unbounded_String);
+         Event_Name     => Null_Unbounded_String,
+         Detail1        => 0,
+         Child_Bus_Name => Null_Unbounded_String,
+         Child_Path     => Null_Unbounded_String);
       Envelope := A11y.Linux.DBus_Messages.Build_Transport_Envelope
         (Outgoing, Result);
       Check
@@ -23573,7 +23576,10 @@ begin
          Reply_Serial   => 0,
          Status         => A11y.Results.Success,
          Object_Path    => To_Unbounded_String ("/org/a11y/atspi/accessible/root"),
-         Event_Name     => To_Unbounded_String ("object:children-changed:add"));
+         Event_Name     => To_Unbounded_String ("object:children-changed:add"),
+         Detail1        => 0,
+         Child_Bus_Name => Null_Unbounded_String,
+         Child_Path     => Null_Unbounded_String);
       Envelope := A11y.Linux.DBus_Messages.Build_Transport_Envelope
         (Outgoing, Result);
       Check
@@ -23595,6 +23601,37 @@ begin
             and then Round.Member_Name = Envelope.Member_Name
             and then Round.Body_Signature = Envelope.Body_Signature,
             "Linux AT-SPI event signals encode a header the decoder reads back");
+      end;
+
+      --  A children-changed event that names its child sends the child's
+      --  index as detail1 and the child itself as a (so) object reference.
+      Outgoing :=
+        (Kind           => A11y.Linux.DBus_Messages.Signal_Message,
+         Serial         => 38,
+         Reply_Serial   => 0,
+         Status         => A11y.Results.Success,
+         Object_Path    => To_Unbounded_String ("/org/a11y/atspi/accessible/root"),
+         Event_Name     => To_Unbounded_String ("object:children-changed:remove"),
+         Detail1        => 2,
+         Child_Bus_Name => To_Unbounded_String (":1.5"),
+         Child_Path     => To_Unbounded_String ("/p/7"));
+      Envelope := A11y.Linux.DBus_Messages.Build_Transport_Envelope
+        (Outgoing, Result);
+      declare
+         NUL  : constant Character := Character'Val (0);
+         Want : constant String :=
+           Character'Val (6) & NUL & NUL & NUL & "remove" & NUL & NUL
+           & Character'Val (2) & NUL & NUL & NUL & NUL & NUL & NUL & NUL
+           & Character'Val (4) & "(so)" & NUL & NUL & NUL & NUL & NUL & NUL & NUL
+           & Character'Val (4) & NUL & NUL & NUL & ":1.5" & NUL & NUL & NUL & NUL
+           & Character'Val (4) & NUL & NUL & NUL & "/p/7" & NUL & NUL & NUL & NUL
+           & NUL & NUL & NUL & NUL & NUL & NUL & NUL & NUL;
+      begin
+         Check
+           (A11y.Results.Succeeded (Result)
+            and then To_String (Envelope.Member_Name) = "ChildrenChanged"
+            and then To_String (Envelope.Body_Bytes) = Want,
+            "Linux AT-SPI children-changed signals name the child as (so) with its index");
       end;
 
       --  What a screen reader asks is handed to the application in order.

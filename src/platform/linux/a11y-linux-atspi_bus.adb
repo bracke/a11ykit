@@ -1024,6 +1024,20 @@ package body A11y.Linux.ATSPi_Bus is
          return;
       end if;
 
+      --  A children-changed event names the child and its index; the child
+      --  goes out as an object reference on this connection.
+      if Signal.Has_Tree_Payload and then Signal.Tree_Payload.Has_Child then
+         Message.Child_Path := A11y.Linux.ATSPi_Objects.Object_Path
+           (Context.Session, Signal.Tree_Payload.Child, Result);
+         if A11y.Results.Failed (Result) then
+            return;
+         end if;
+         Message.Child_Bus_Name := Context.Unique_Name;
+         if Signal.Tree_Payload.Has_Index then
+            Message.Detail1 := Signal.Tree_Payload.Index - 1;
+         end if;
+      end if;
+
       A11y.Linux.DBus_Messages.Enqueue
         (Context.Outgoing, Message, Result);
    exception

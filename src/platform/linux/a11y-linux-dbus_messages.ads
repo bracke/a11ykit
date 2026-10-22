@@ -88,6 +88,12 @@ package A11y.Linux.DBus_Messages is
             Error_Name : Ada.Strings.Unbounded.Unbounded_String;
          when Signal_Message =>
             Event_Name  : Ada.Strings.Unbounded.Unbounded_String;
+            Detail1     : Integer := 0;
+            --  The child a children-changed event names, sent as its (so)
+            --  any-data: the sending connection's unique bus name and the
+            --  child's object path. Both empty when the event names none.
+            Child_Bus_Name : Ada.Strings.Unbounded.Unbounded_String;
+            Child_Path     : Ada.Strings.Unbounded.Unbounded_String;
          when Method_Call =>
             Interface_Name : Ada.Strings.Unbounded.Unbounded_String;
             Member_Name    : Ada.Strings.Unbounded.Unbounded_String;

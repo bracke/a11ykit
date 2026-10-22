@@ -491,21 +491,42 @@ package body A11y.Linux.DBus_Messages is
    --  the detail, two integers, an any-data variant and a property map.
    Event_Body_Signature : constant String := "siiva{sv}";
 
-   function Event_Body (Detail : String; Detail1 : Integer) return Unbounded_String is
+   function Event_Body
+     (Detail     : String;
+      Detail1    : Integer;
+      Bus_Name   : String := "";
+      Child_Path : String := "") return Unbounded_String
+   is
       Bytes : Unbounded_String;
+
+      procedure Append_Text (Text : String) is
+      begin
+         Align (Bytes, 4);
+         Append_U32_LE (Bytes, Text'Length);
+         Append (Bytes, Text);
+         Append_Byte (Bytes, 0);
+      end Append_Text;
    begin
-      Append_U32_LE (Bytes, Detail'Length);
-      Append (Bytes, Detail);
-      Append_Byte (Bytes, 0);
+      Append_Text (Detail);
       Align (Bytes, 4);
       Append_I32_LE (Bytes, Detail1);
       Append_I32_LE (Bytes, 0);
-      --  any_data: a variant holding the integer 0.
-      Append_Byte (Bytes, 1);
-      Append (Bytes, "i");
-      Append_Byte (Bytes, 0);
-      Align (Bytes, 4);
-      Append_I32_LE (Bytes, 0);
+      if Child_Path'Length > 0 then
+         --  any_data: a variant holding the child as an object reference.
+         Append_Byte (Bytes, 4);
+         Append (Bytes, "(so)");
+         Append_Byte (Bytes, 0);
+         Align (Bytes, 8);
+         Append_Text (Bus_Name);
+         Append_Text (Child_Path);
+      else
+         --  any_data: a variant holding the integer 0.
+         Append_Byte (Bytes, 1);
+         Append (Bytes, "i");
+         Append_Byte (Bytes, 0);
+         Align (Bytes, 4);
+         Append_I32_LE (Bytes, 0);
+      end if;
       --  properties: an empty a{sv}; its elements would start 8-aligned.
       Align (Bytes, 4);
       Append_U32_LE (Bytes, 0);
@@ -1371,7 +1392,11 @@ package body A11y.Linux.DBus_Messages is
                   Body_Signature            => To_Unbounded_String (Event_Body_Signature),
                   --  A state-changed event reports a state being set.
                   Body_Bytes                =>
-                    Event_Body (To_String (Detail), (if To_String (Member) = "StateChanged" then 1 else 0)),
+                    Event_Body
+                      (To_String (Detail),
+                       (if To_String (Member) = "StateChanged" then 1 else Message.Detail1),
+                       To_String (Message.Child_Bus_Name),
+                       To_String (Message.Child_Path)),
                   Body_Object_Path_Argument => Null_Unbounded_String,
                   Body_String_Argument      => Null_Unbounded_String,
                   Body_String_Argument_2    => Null_Unbounded_String,
@@ -5718,7 +5743,10 @@ package body A11y.Linux.DBus_Messages is
          Reply_Serial => 0,
          Status       => A11y.Results.Success,
          Object_Path  => Signal.Object_Path,
-         Event_Name   => Signal.Event_Name);
+         Event_Name   => Signal.Event_Name,
+         Detail1      => 0,
+         Child_Bus_Name => Null_Unbounded_String,
+         Child_Path   => Null_Unbounded_String);
    exception
       when others =>
          Result := (Status => A11y.Results.Internal_Error);

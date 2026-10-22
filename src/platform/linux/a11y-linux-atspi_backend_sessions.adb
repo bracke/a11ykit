@@ -773,6 +773,34 @@ package body A11y.Linux.ATSPi_Backend_Sessions is
       Queue_Event_Signal_With_Report (Session, Event, Report, Result);
    end Queue_Event_Signal;
 
+   procedure Queue_Tree_Event_Signal
+     (Session : in out Backend_Session;
+      Event   : A11y.Events.Event;
+      Payload : A11y.Events.Tree_Event_Payload;
+      Result  : out A11y.Results.Result)
+   is
+      Prepared  : A11y.Native_Runtimes.Prepared_Event;
+      Validated : constant A11y.Events.Tree_Event_Payload :=
+        A11y.Events.Validate_Tree_Event_Payload (Event.Kind, Payload, Result);
+   begin
+      if A11y.Results.Failed (Result) then
+         return;
+      end if;
+
+      A11y.Backends.Native_Backends.Prepare_Publication
+        (Session.Backend, Event, Prepared, Result);
+      if A11y.Results.Failed (Result) then
+         return;
+      end if;
+
+      Prepared.Has_Tree_Payload := True;
+      Prepared.Tree_Payload := Validated;
+      Queue_Prepared_Event_Signal (Session, Prepared, Result);
+   exception
+      when others =>
+         Result := (Status => A11y.Results.Internal_Error);
+   end Queue_Tree_Event_Signal;
+
    procedure Queue_Event_Signal_With_Report
      (Session : in out Backend_Session;
       Event   : A11y.Events.Event;

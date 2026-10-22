@@ -240,6 +240,13 @@ package A11y.Linux.ATSPi_Backend_Sessions is
       Event   : A11y.Events.Event;
       Result  : out A11y.Results.Result);
 
+   --  A child added or removed, naming which child and where it sat.
+   procedure Queue_Tree_Event_Signal
+     (Session : in out Backend_Session;
+      Event   : A11y.Events.Event;
+      Payload : A11y.Events.Tree_Event_Payload;
+      Result  : out A11y.Results.Result);
+
    type Prepared_Signal_Queue_Report is record
       Registered             : Boolean := False;
       Pending_Outgoing_Before : Natural := 0;
