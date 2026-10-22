@@ -726,6 +726,12 @@ package A11y.Windows_Backend.UIA_Native_Bridge is
    with Import, Convention => C,
         External_Name => "a11y_uia_raise_element_event";
 
+   --  1 when UI Automation in this process knows of a client listening for
+   --  events (UiaClientsAreListening); 0 when it would drop them unsent.
+   function Clients_Listening return Native_UInt32
+   with Import, Convention => C,
+        External_Name => "a11y_uia_clients_listening";
+
    type Navigation_Callback is access function
      (Frame           : access constant Native_UInt64;
       Direction       : Native_UInt32;

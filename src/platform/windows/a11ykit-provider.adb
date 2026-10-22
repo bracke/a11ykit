@@ -416,7 +416,8 @@ package body A11ykit.Provider is
            Native.Raise_Element_Event
              (Provider_Host, Root_P, Provider, Object, Event_Id, (if Structure then 1 else 0));
          Trace ("event " & What & " in window node" & Window'Image & " root provider" & Root_P'Image
-                & ": HRESULT" & Answer'Image);
+                & ": HRESULT" & Answer'Image
+                & (if Native.Clients_Listening = 0 then "; no client listening" else "; clients listening"));
       else
          Trace ("no event " & What & ": the node has no provider");
       end if;

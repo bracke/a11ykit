@@ -5551,6 +5551,16 @@ a11y_uia_hresult a11y_uia_raise_element_event(void *handle,
 #endif
 }
 
+/* 1 when UI Automation in this process knows of a client listening for
+   events; 0 when it would drop a raised event unsent. */
+uint32_t a11y_uia_clients_listening(void) {
+#if defined(_WIN32)
+    return UiaClientsAreListening() ? 1u : 0u;
+#else
+    return 0u;
+#endif
+}
+
 /* Let the host's provider, and every element reached from it, navigate the
    tree through Callback. */
 void a11y_uia_set_callback_provider_host_navigation(
