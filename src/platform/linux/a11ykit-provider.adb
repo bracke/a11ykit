@@ -9,6 +9,7 @@ with Ada.Strings.Unbounded;
 with Ada.Unchecked_Deallocation;
 
 with A11ykit.Compatibility;
+with A11ykit.Stable_Ids;
 with A11ykit.Provider_Runtime;
 
 with A11y;
@@ -69,7 +70,6 @@ package body A11ykit.Provider is
    package Published_Maps is new Ada.Containers.Ordered_Maps (Positive, Published_Node);
 
    --  What the screen reader last heard, by id, and which node had the focus.
-   Id_Of_Identity : Id_Maps.Map;
    Last_Published : Published_Maps.Map;
    Last_Ids       : A11ykit.Tree.Index_Vectors.Vector;
    Last_Focus     : Unbounded_String;
@@ -105,82 +105,11 @@ package body A11ykit.Provider is
       else To_Unbounded_String
              (Natural'Image (Id_At (Tree, Tree.Focused)) & ASCII.NUL & To_String (Tree.Nodes (Tree.Focused).Name)));
 
-   --  Give Tree's nodes their ids: the id an identity had before, else one
-   --  that no node had in the last publication either, so a new item never
-   --  takes over the id of an item that has just gone. The application node,
-   --  first, is always 1.
+   Ids : A11ykit.Stable_Ids.Id_State;
+
    procedure Assign_Ids (Tree : in out A11ykit.Tree.Accessibility_Tree) is
-      Count      : constant Natural := Natural (Tree.Nodes.Length);
-      Identities : array (1 .. Count) of Unbounded_String;
-      Done       : array (1 .. Count) of Boolean := [others => False];
-      Seen       : Id_Maps.Map;
-      Taken      : Id_Sets.Set;
-      Next_Free  : Positive := 2;
-      Ids        : A11ykit.Tree.Index_Vectors.Vector;
-      Fresh      : Id_Maps.Map;
-
-      function Identity (Index : Positive; Depth : Natural := 0) return Unbounded_String is
-      begin
-         if not Done (Index) then
-            declare
-               Item : constant A11ykit.Tree.Node := Tree.Nodes (Index);
-               Base : constant Unbounded_String :=
-                 (if Item.Parent = 0 or else Depth > Count then Null_Unbounded_String
-                  else Identity (Item.Parent, Depth + 1))
-                 & "/" & A11ykit.Role'Image (Item.Node_Role) & ":" & Item.Name;
-               Occurrence : constant Natural :=
-                 (if Seen.Contains (Base) then Seen.Element (Base) + 1 else 1);
-            begin
-               Seen.Include (Base, Occurrence);
-               Identities (Index) := Base & "#" & Natural'Image (Occurrence);
-               Done (Index) := True;
-            end;
-         end if;
-         return Identities (Index);
-      end Identity;
    begin
-      if Count = 0 then
-         return;
-      end if;
-      for Index in 1 .. Count loop
-         declare
-            Ignored : constant Unbounded_String := Identity (Index);
-         begin
-            null;
-         end;
-      end loop;
-
-      --  Ids of the last publication are not handed out afresh this time.
-      for Id of Last_Ids loop
-         Taken.Include (Id);
-      end loop;
-      Taken.Include (1);
-      for Index in 1 .. Count loop
-         declare
-            Id : Positive := 1;
-         begin
-            if Index = 1 then
-               Id := 1;
-            elsif Id_Of_Identity.Contains (Identities (Index)) then
-               Id := Id_Of_Identity.Element (Identities (Index));
-            else
-               while Taken.Contains (Next_Free) loop
-                  Next_Free := Next_Free + 1;
-               end loop;
-               Id := Next_Free;
-               Taken.Include (Id);
-            end if;
-            if Id > A11y.Trees.Max_Attached_Nodes then
-               --  Out of ids: publish by position, as before stable ids.
-               Tree.Ids.Clear;
-               return;
-            end if;
-            Ids.Append (Id);
-            Fresh.Include (Identities (Index), Id);
-         end;
-      end loop;
-      Tree.Ids := Ids;
-      Id_Of_Identity := Fresh;
+      A11ykit.Stable_Ids.Assign (Ids, Tree);
    end Assign_Ids;
 
    --  The sequence number given to the last event handed to the backend.

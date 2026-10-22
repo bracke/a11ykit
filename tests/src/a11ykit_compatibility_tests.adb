@@ -2,6 +2,7 @@ with Ada.Strings.Unbounded;
 
 with A11ykit;
 with A11ykit.Compatibility;
+with A11ykit.Stable_Ids;
 with A11ykit.Tree;
 
 with A11y.Capabilities;
@@ -296,6 +297,75 @@ package body A11ykit_Compatibility_Tests is
                and then A11y.Sessions.Pending_Event_Count (Session) = 0,
                "compatibility refuses invalid legacy trees before session mutation");
          end;
+      end;
+
+      --  Stable ids: an item keeps its id while items around it come and
+      --  go, and a new item never takes the id of one that has just gone.
+      declare
+         State : A11ykit.Stable_Ids.Id_State;
+
+         function Item (Role : A11ykit.Role; Name : String; Parent : Natural) return A11ykit.Tree.Node is
+           (Node_Role   => Role,
+            Bounds      => (X => 0, Y => 0, Width => 10, Height => 10),
+            Name        => Ada.Strings.Unbounded.To_Unbounded_String (Name),
+            Description => Ada.Strings.Unbounded.Null_Unbounded_String,
+            Node_State  => (others => <>),
+            Parent      => Parent);
+
+         --  An application, a window, and the named items in the window.
+         function Folder (Names : String) return A11ykit.Tree.Accessibility_Tree is
+            Result : A11ykit.Tree.Accessibility_Tree;
+         begin
+            Result.Nodes.Append (Item (A11ykit.Role_Application, "app", 0));
+            Result.Nodes.Append (Item (A11ykit.Role_Window, "window", 1));
+            for Name of Names loop
+               Result.Nodes.Append (Item (A11ykit.Role_List_Item, [Name], 2));
+            end loop;
+            return Result;
+         end Folder;
+
+         function Id_Of (Tree : A11ykit.Tree.Accessibility_Tree; Name : String) return Natural is
+         begin
+            for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
+               if Ada.Strings.Unbounded.To_String (Tree.Nodes (Index).Name) = Name then
+                  return Tree.Ids (Index);
+               end if;
+            end loop;
+            return 0;
+         end Id_Of;
+
+         First  : A11ykit.Tree.Accessibility_Tree := Folder ("abcde");
+         Second : A11ykit.Tree.Accessibility_Tree := Folder ("ab");
+         Third  : A11ykit.Tree.Accessibility_Tree := Folder ("bfa");
+         Fourth : A11ykit.Tree.Accessibility_Tree := Folder ("bga");
+      begin
+         A11ykit.Stable_Ids.Assign (State, First);
+         A11ykit.Stable_Ids.Assign (State, Second);
+         Check
+           (Natural (First.Ids.Length) = 7 and then First.Ids (1) = 1
+            and then Id_Of (Second, "a") = Id_Of (First, "a")
+            and then Id_Of (Second, "b") = Id_Of (First, "b")
+            and then Id_Of (Second, "window") = Id_Of (First, "window"),
+            "stable ids: items keep their ids when others go");
+
+         A11ykit.Stable_Ids.Assign (State, Third);
+         Check
+           (Id_Of (Third, "a") = Id_Of (First, "a")
+            and then Id_Of (Third, "b") = Id_Of (First, "b"),
+            "stable ids: items keep their ids when reordered");
+         --  The last publication had only a and b: their ids, the window's
+         --  and the application's are not to be had.
+         Check
+           (Id_Of (Third, "f") not in Id_Of (Second, "a") | Id_Of (Second, "b")
+                                     | Id_Of (Second, "window") | 1,
+            "stable ids: a new item takes no id of the last publication");
+
+         --  Ids freed earlier come back once a publication has passed.
+         A11ykit.Stable_Ids.Assign (State, Fourth);
+         Check
+           (Id_Of (Fourth, "g") in Id_Of (First, "c") | Id_Of (First, "d") | Id_Of (First, "e")
+            and then Id_Of (Fourth, "a") = Id_Of (First, "a"),
+            "stable ids: ids of items long gone are reused");
       end;
    end Run;
 end A11ykit_Compatibility_Tests;
