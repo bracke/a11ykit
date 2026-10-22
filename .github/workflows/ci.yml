@@ -134,28 +134,3 @@ jobs:
             echo "::endgroup::"
           done
           exit $status
-
-      - name: Screen-reader client walk (Windows and macOS, exploratory)
-        # Runs the focus-walk demo and walks what it exposes with the host's
-        # own client API (UI Automation, AXUIElement), the one Narrator and
-        # VoiceOver use. Exploratory: it reports, it does not gate.
-        if: runner.os != 'Linux'
-        continue-on-error: true
-        shell: bash
-        working-directory: a11ykit
-        run: |
-          alr --non-interactive exec -- gprbuild -P examples/a11y_examples.gpr \
-            || { echo "::warning::examples did not build"; exit 0; }
-          demo=examples/bin/focus_walk_demo
-          [ -f "$demo.exe" ] && demo="$demo.exe"
-          "$demo" 8 &
-          pid=$!
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            powershell -NoProfile -ExecutionPolicy Bypass -File .github/scripts/uia_walk.ps1; code=$?
-          else
-            sleep 3
-            swift .github/scripts/ax_walk.swift "$pid"; code=$?
-          fi
-          kill "$pid" 2>/dev/null || true
-          echo "client walk exit $code on $RUNNER_OS"
-          [ "$code" = 0 ] || echo "::warning::the screen-reader client did not reach the demo's items on $RUNNER_OS"
