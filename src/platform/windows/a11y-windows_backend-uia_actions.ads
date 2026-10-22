@@ -1,5 +1,7 @@
 with A11y.Actions;
+with A11y.Capabilities;
 with A11y.Results;
+with A11y.Roles;
 with A11y.States;
 
 package A11y.Windows_Backend.UIA_Actions is
@@ -38,6 +40,16 @@ package A11y.Windows_Backend.UIA_Actions is
       Operation : UIA_Action := Invoke_Invoke;
       Status    : A11y.Results.Status_Code := A11y.Results.Unsupported_Action;
    end record;
+
+   --  What a screen reader may do to an element of Role with States and
+   --  Capabilities: activate what acts, focus what takes the focus, expand
+   --  what expands, toggle check boxes and toggle buttons, select what is
+   --  selectable, close windows, and scroll anything into view.
+   function Default_Actions
+     (Role         : A11y.Roles.Role;
+      States       : A11y.States.State_Set;
+      Capabilities : A11y.Capabilities.Capability_Set)
+      return A11y.Actions.Action_Set;
 
    function Pattern_Set
      (Actions : A11y.Actions.Action_Set)

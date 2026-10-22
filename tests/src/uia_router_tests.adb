@@ -8796,6 +8796,12 @@ begin
       Tree.Nodes.Append (Item ("Open", 10, 10, 50, 20, 1));
       Tree.Nodes.Append (Item ("Second window", 400, 0, 300, 200, 0));
       Tree.Nodes.Append (Item ("Close", 410, 10, 50, 20, 3));
+      declare
+         Close : A11ykit.Tree.Node := Tree.Nodes (4);
+      begin
+         Close.Node_State.Focused := True;
+         Tree.Nodes.Replace_Element (4, Close);
+      end;
       Tree.Focused := 4;
       pragma Unreferenced (Flat);
 
@@ -8819,6 +8825,81 @@ begin
              "UIA navigation inside the second window");
       Check (Go (3, 5) = 4 and then Go (1, 5) = 0,
              "UIA focus is answered by the window that holds it");
+
+      --  A client asks each element what it is: the button says Button.
+      declare
+         Kind : aliased Native.Native_UInt32 := 0;
+         Used : aliased Native.Native_UInt32 := 0;
+         Text : String (1 .. 64) := [others => ' '];
+         Provider, Object : Interfaces.Unsigned_64;
+         Code : Native.Native_UInt32;
+      begin
+         Callbacks.Ensure_Export (Context, 2, Provider, Object);
+         Frame := [others => 0];
+         Frame (0) := Native.Native_UInt64 (A11y.Native_Identity.To_Natural (Session));
+         Frame (1) := Provider;
+         Frame (2) := Object;
+         Frame (3) := 2;
+         Frame (4) := Native.Native_UInt64
+           (A11y.Windows_Backend.UIA_ABI_Surface.Method_Code
+              (A11y.Windows_Backend.UIA_ABI_Surface.Simple_Get_Property_Value));
+         Code := Callbacks.Copy_Property_Value_Callback
+           (Frame (0)'Access, 30_003, Kind'Access, Text'Address, Text'Length, Used'Access, Context'Address);
+         Check (Code = 0 and then Kind = 3 and then Used = 50_000,
+                "UIA control type of a button is Button:" & Code'Image & Kind'Image & Used'Image);
+      end;
+
+      --  What a screen reader reads besides the name: focus, enabled, and
+      --  where the element is.
+      declare
+         Kind : aliased Native.Native_UInt32 := 0;
+         Used : aliased Native.Native_UInt32 := 0;
+         Text : String (1 .. 64) := [others => ' '];
+         Left, Top, Width, Height : aliased Interfaces.C.double := 0.0;
+         Rect_Code : Native.Native_UInt32;
+         Provider, Object : Interfaces.Unsigned_64;
+
+         procedure Point (Node : Natural; Method : A11y.Windows_Backend.UIA_ABI_Surface.UIA_ABI_Method) is
+         begin
+            Callbacks.Ensure_Export (Context, Node, Provider, Object);
+            Frame := [others => 0];
+            Frame (0) := Native.Native_UInt64 (A11y.Native_Identity.To_Natural (Session));
+            Frame (1) := Provider;
+            Frame (2) := Object;
+            Frame (3) := 2;
+            Frame (4) := Native.Native_UInt64 (A11y.Windows_Backend.UIA_ABI_Surface.Method_Code (Method));
+         end Point;
+
+         function Flag (Node : Natural; Property : Native.Native_UInt32) return String is
+         begin
+            Point (Node, A11y.Windows_Backend.UIA_ABI_Surface.Simple_Get_Property_Value);
+            if Callbacks.Copy_Property_Value_Callback
+                 (Frame (0)'Access, Property, Kind'Access, Text'Address, Text'Length, Used'Access,
+                  Context'Address) /= 0
+            then
+               return "error";
+            elsif Kind /= 4 then
+               return "kind" & Kind'Image;
+            end if;
+            return (if Used /= 0 then "true" else "false");
+         end Flag;
+      begin
+         Check (Flag (4, 30_008) = "true" and then Flag (2, 30_008) = "false",
+                "UIA keyboard focus is the focused element's: " & Flag (4, 30_008) & " " & Flag (2, 30_008));
+         Check (Flag (2, 30_010) = "true", "UIA a plain button is enabled: " & Flag (2, 30_010));
+         Point (4, A11y.Windows_Backend.UIA_ABI_Surface.Fragment_Get_Bounding_Rectangle);
+         Frame (3) := 3;
+         Rect_Code :=
+           Callbacks.Copy_Bounding_Rectangle_Callback
+             (Frame (0)'Access, Left'Access, Top'Access, Width'Access, Height'Access, Context'Address);
+         Check
+           (Rect_Code = 0
+            and then Integer (Left) = 410 and then Integer (Top) = 10
+            and then Integer (Width) = 50 and then Integer (Height) = 20,
+            "UIA bounding rectangle is the element's own:" & Rect_Code'Image & " status "
+            & Context.Last_Status'Image & Integer (Left)'Image & Integer (Top)'Image
+            & Integer (Width)'Image & Integer (Height)'Image);
+      end;
    end;
 
    if Failures = 0 then

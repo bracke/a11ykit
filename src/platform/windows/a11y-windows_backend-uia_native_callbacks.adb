@@ -311,6 +311,21 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
          return A11y.Node_Ids.No_Node;
    end Node_Of;
 
+   --  The states of the element the snapshot is pointed at: its own node's
+   --  when the snapshot answers per node, the snapshot's otherwise.
+   function Element_States (View : Context_Conversions.Object_Pointer) return A11y.States.State_Set is
+      Metadata : constant A11y.Semantic_Snapshots.Node_Metadata :=
+        (if View.Snapshots.Properties.Use_Node_Metadata
+         then A11y.Semantic_Snapshots.Metadata (View.Snapshots.Properties.Nodes, View.Snapshots.Properties.Id)
+         else (others => <>));
+   begin
+      if View.Snapshots.Properties.Use_Node_Metadata and then Metadata.Present then
+         return A11y.States.Derive (Metadata.States, Metadata.Role, Metadata.Capabilities);
+      end if;
+      return A11y.States.Derive
+        (View.Snapshots.Properties.States, View.Snapshots.Properties.Role, View.Snapshots.Properties.Capabilities);
+   end Element_States;
+
    procedure Retarget
      (Frame   : access constant Native.Native_UInt64;
       Context : System.Address)
@@ -340,6 +355,18 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
          View.Snapshots.Fragment.Node := Node;
          View.Snapshots.Action_Node := Node;
          View.Snapshots.Relation_Source := Node;
+         --  What can be done to it, and its states, are the element's own.
+         declare
+            Metadata : constant A11y.Semantic_Snapshots.Node_Metadata :=
+              A11y.Semantic_Snapshots.Metadata (View.Snapshots.Properties.Nodes, Node);
+         begin
+            if Metadata.Present then
+               View.Snapshots.Actions :=
+                 A11y.Windows_Backend.UIA_Actions.Default_Actions
+                   (Metadata.Role, Metadata.States, Metadata.Capabilities);
+               View.Snapshots.Action_States := Metadata.States;
+            end if;
+         end;
       end if;
    exception
       when others =>
@@ -818,6 +845,16 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
          return Error_Code (A11y.Results.Unsupported_Property);
       end if;
 
+      --  Whether this element is selected is its own state; the selection
+      --  snapshot follows only the focused item.
+      if Request_Frame.Method_Code
+           = ABI.Method_Code (ABI.Selection_Item_Provider_Get_Is_Selected)
+        and then Context_View.Snapshots.Properties.Use_Node_Metadata
+      then
+         Value.all := (if Element_States (Context_View) (A11y.States.Selected) then 1 else 0);
+         return Native.Native_UInt32 (Exports.HRESULT_Code (Boundary.S_OK));
+      end if;
+
       Value.all := (if Reply.Payload.Boolean_Item then 1 else 0);
       return Native.Native_UInt32 (Exports.HRESULT_Code (Boundary.S_OK));
    exception
@@ -979,11 +1016,7 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
          return Native.Native_UInt32 (Context_View.Last_HResult_Code);
       end if;
 
-      Effective_States :=
-        A11y.States.Derive
-          (Context_View.Snapshots.Properties.States,
-           Context_View.Snapshots.Properties.Role,
-           Context_View.Snapshots.Properties.Capabilities);
+      Effective_States := Element_States (Context_View);
 
       if Native_State_Kind = Native_Toggle_State then
          if Effective_States (A11y.States.Indeterminate) then

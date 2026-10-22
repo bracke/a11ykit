@@ -10,9 +10,10 @@ package body A11y.MacOS_Backend.NSAccessibility_Mappings is
         when A11y.Roles.Check_Box => Check_Box,
         when A11y.Roles.Radio_Button => Radio_Button,
         when A11y.Roles.Combo_Box => Combo_Box,
-        when A11y.Roles.List | A11y.Roles.List_Item => List,
-        when A11y.Roles.Row => Row,
-        when A11y.Roles.Tree | A11y.Roles.Tree_Item => Outline,
+        when A11y.Roles.List => List,
+        --  The items of a list or an outline are its rows, as in AppKit's own.
+        when A11y.Roles.Row | A11y.Roles.List_Item | A11y.Roles.Tree_Item => Row,
+        when A11y.Roles.Tree => Outline,
         when A11y.Roles.Table => Table,
         when A11y.Roles.Cell | A11y.Roles.Column => Cell,
         when A11y.Roles.Tab_List | A11y.Roles.Tab => Tab_Group,

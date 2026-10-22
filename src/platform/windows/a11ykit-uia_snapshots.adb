@@ -1,14 +1,11 @@
 with A11ykit.Compatibility;
 
-with A11y.Actions;
-with A11y.Capabilities;
 with A11y.Geometry;
 with A11y.Properties;
-with A11y.Roles;
 with A11y.Selection;
 with A11y.Semantic_Snapshots;
-with A11y.States;
 with A11y.Trees;
+with A11y.Windows_Backend.UIA_Actions;
 
 package body A11ykit.UIA_Snapshots is
 
@@ -37,34 +34,6 @@ package body A11ykit.UIA_Snapshots is
       Result := (Status => A11y.Results.Invalid_State);
       return A11y.Node_Ids.No_Node;
    end Root_Node;
-
-   procedure Add_Default_Actions
-     (Metadata : A11y.Semantic_Snapshots.Node_Metadata;
-      Actions  : in out A11y.Actions.Action_Set)
-   is
-      use type A11y.Roles.Role;
-   begin
-      Actions := A11y.Actions.Empty_Action_Set;
-      if Metadata.Capabilities (A11y.Capabilities.Action) then
-         Actions (A11y.Actions.Activate) := True;
-         Actions (A11y.Actions.Press) := True;
-      end if;
-
-      if Metadata.States (A11y.States.Focusable) then
-         Actions (A11y.Actions.Set_Focus) := True;
-      end if;
-
-      if Metadata.States (A11y.States.Expandable) then
-         Actions (A11y.Actions.Expand) := True;
-         Actions (A11y.Actions.Collapse) := True;
-      end if;
-
-      if Metadata.Role in A11y.Roles.Window | A11y.Roles.Dialog then
-         Actions (A11y.Actions.Close) := True;
-      end if;
-
-      Actions (A11y.Actions.Scroll_Into_View) := True;
-   end Add_Default_Actions;
 
    procedure Build_Snapshots
      (Tree      : A11ykit.Tree.Accessibility_Tree;
@@ -160,7 +129,9 @@ package body A11ykit.UIA_Snapshots is
       Snapshots.Fragment.Focused_Node := Focused;
       Snapshots.Fragment.Hit_Test_Point := Snapshots.Properties.Bounds.Origin;
 
-      Add_Default_Actions (Metadata, Snapshots.Actions);
+      Snapshots.Actions :=
+        A11y.Windows_Backend.UIA_Actions.Default_Actions
+          (Metadata.Role, Metadata.States, Metadata.Capabilities);
       Snapshots.Action_Node := Root;
       Snapshots.Action_Root := Root;
       Snapshots.Action_Tree := Snapshots.Properties.Tree;

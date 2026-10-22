@@ -1156,6 +1156,28 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_pattern(
     return hr;
 }
 
+/* The tree's rectangles are in the window's client area; UI Automation's are
+   on the screen. Move one by where the window hosting the element's
+   fragment shows its client area. */
+static void a11y_uia_client_to_screen(struct a11y_uia_callback_provider *provider,
+                                      double *left, double *top) {
+    struct a11y_uia_callback_provider *root;
+    POINT origin;
+    if (provider == 0) {
+        return;
+    }
+    root = provider->root != 0 ? provider->root : provider;
+    if (root->host_hwnd == 0) {
+        return;
+    }
+    origin.x = 0;
+    origin.y = 0;
+    if (ClientToScreen(root->host_hwnd, &origin)) {
+        *left += (double)origin.x;
+        *top += (double)origin.y;
+    }
+}
+
 static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_property(
     IRawElementProviderSimple *self,
     PROPERTYID property_id,
@@ -1200,7 +1222,9 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_property(
         frame[0] = provider->session;
         frame[1] = provider->provider;
         frame[2] = provider->object_token;
-        frame[3] = 2;
+        /* A fragment method, asked as the fragment interface: as the simple
+           one it is refused and the property comes back empty. */
+        frame[3] = 3;
         frame[4] = provider->fragment_bounding_rectangle_method;
         frame[5] = 0;
         hr = (HRESULT)provider->rectangle_callback(
@@ -1208,6 +1232,7 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_property(
         if (FAILED(hr)) {
             return hr;
         }
+        a11y_uia_client_to_screen(provider, &left, &top);
         array_value = SafeArrayCreateVector(VT_R8, 0, 4);
         if (array_value == 0) {
             return E_OUTOFMEMORY;
@@ -1246,7 +1271,10 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_property(
             (uint32_t)sizeof(utf8_buffer),
             &utf8_used,
             provider->callback_context);
-        if (SUCCEEDED(hr) && utf8_used > sizeof(utf8_buffer)) {
+        /* Only a string's count is a length in the buffer; an integer
+           answer (a control type is 50000 and up) travels in the same
+           field. */
+        if (SUCCEEDED(hr) && value_kind == 1 && utf8_used > sizeof(utf8_buffer)) {
             return E_FAIL;
         }
         if (SUCCEEDED(hr) && value_kind == 1) {
@@ -3196,6 +3224,7 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_bounding_rectangle(
             frame, &left, &top, &width, &height,
             provider->callback_context);
         if (SUCCEEDED(hr)) {
+            a11y_uia_client_to_screen(provider, &left, &top);
             result->left = left;
             result->top = top;
             result->width = width;

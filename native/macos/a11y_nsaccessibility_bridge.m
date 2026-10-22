@@ -568,6 +568,8 @@ static int32_t a11y_nsax_decode_i32(unsigned int value) {
     id a11y_attached_window;
 }
 - (void)a11yAttachToParent:(id)parent window:(id)window;
+- (void)a11ySetWindow:(id)window;
+- (BOOL)a11yScreenFrame:(NSRect *)frame;
 - (id)initWithSession:(unsigned long long)session
                  node:(unsigned long long)node
              callback:(a11y_nsax_callback)callback
@@ -763,7 +765,49 @@ static NSString *a11y_nsax_element_key(unsigned long long session,
         [a11y_nsax_elements setObject:element forKey:key];
         [element release];
     }
+    /* An element is in the window of the element that named it. */
+    if (a11y_attached_window != nil) {
+        [element a11ySetWindow:a11y_attached_window];
+    }
     return element;
+}
+
+- (void)a11ySetWindow:(id)window {
+    a11y_attached_window = window;
+}
+
+/* The element's frame in the window's client area, as the tree has it (top
+   left origin, in the window's pixels), made into Cocoa screen coordinates
+   (points, bottom left origin), which is what AXPosition and AXSize are in. */
+- (BOOL)a11yScreenFrame:(NSRect *)frame {
+    id value;
+    NSWindow *window;
+    NSRect local;
+    NSRect content;
+    CGFloat scale;
+
+    if (a11y_attached_window == nil
+        || ![a11y_attached_window isKindOfClass:[NSWindow class]]) {
+        return NO;
+    }
+    value = [self a11yCopyValueForSelector:A11Y_NSAX_SELECTOR_ATTRIBUTE_VALUE
+                                   operand:A11Y_NSAX_ATTRIBUTE_FRAME];
+    if (![value isKindOfClass:[NSValue class]]) {
+        return NO;
+    }
+    window = (NSWindow *)a11y_attached_window;
+    local = [(NSValue *)value rectValue];
+    scale = [window backingScaleFactor];
+    if (scale <= 0.0) {
+        scale = 1.0;
+    }
+    content = [window contentRectForFrameRect:[window frame]];
+    frame->size.width = local.size.width / scale;
+    frame->size.height = local.size.height / scale;
+    frame->origin.x = content.origin.x + local.origin.x / scale;
+    frame->origin.y = content.origin.y + content.size.height
+        - (local.origin.y + local.size.height) / scale;
+    return YES;
 }
 
 /* The root of a tree shown in an application's window answers that window's
@@ -834,7 +878,21 @@ static NSString *a11y_nsax_element_key(unsigned long long session,
     [self a11yDispatchSelector:A11Y_NSAX_SELECTOR_ATTRIBUTE_NAMES];
     id value = [self a11yCopyValueForSelector:A11Y_NSAX_SELECTOR_ATTRIBUTE_NAMES
                                       operand:0u];
-    return [value isKindOfClass:[NSArray class]] ? value : [NSArray array];
+    NSArray *names = [value isKindOfClass:[NSArray class]] ? value : [NSArray array];
+    /* In a window, an element also has a place on the screen, a window and
+       a parent, answered here rather than by the tree. */
+    if (a11y_attached_window != nil) {
+        NSMutableArray *all = [NSMutableArray arrayWithArray:names];
+        NSArray *more = [NSArray arrayWithObjects:@"AXPosition", @"AXSize", @"AXWindow",
+                                                  @"AXTopLevelUIElement", @"AXParent", nil];
+        for (NSString *name in more) {
+            if (![all containsObject:name]) {
+                [all addObject:name];
+            }
+        }
+        return all;
+    }
+    return names;
 }
 
 - (id)accessibilityAttributeValue:(NSString *)attribute {
@@ -846,6 +904,20 @@ static NSString *a11y_nsax_element_key(unsigned long long session,
         && ([attribute isEqualToString:@"AXWindow"]
             || [attribute isEqualToString:@"AXTopLevelUIElement"])) {
         return a11y_attached_window;
+    }
+    if (a11y_attached_window != nil
+        && ([attribute isEqualToString:@"AXPosition"]
+            || [attribute isEqualToString:@"AXSize"]
+            || [attribute isEqualToString:@"AXFrame"])) {
+        NSRect screen;
+        if ([self a11yScreenFrame:&screen]) {
+            if ([attribute isEqualToString:@"AXPosition"]) {
+                return [NSValue valueWithPoint:screen.origin];
+            } else if ([attribute isEqualToString:@"AXSize"]) {
+                return [NSValue valueWithSize:screen.size];
+            }
+            return [NSValue valueWithRect:screen];
+        }
     }
     operand = a11y_nsax_attribute_operand(attribute);
     [self a11yDispatchSelector:A11Y_NSAX_SELECTOR_ATTRIBUTE_VALUE
