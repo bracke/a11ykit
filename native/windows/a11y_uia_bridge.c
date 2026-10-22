@@ -17,6 +17,12 @@
 #include <windows.h>
 #include <oleauto.h>
 #include <uiautomation.h>
+
+/* UIAutomationCoreApi.h's marker for a runtime id the host completes; some
+   MinGW headers leave it out. */
+#ifndef UiaAppendRuntimeId
+#define UiaAppendRuntimeId 3
+#endif
 #endif
 
 typedef int32_t a11y_uia_hresult;
@@ -3147,7 +3153,20 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_runtime_id(
             items_used > (uint32_t)LONG_MAX) {
             return E_FAIL;
         }
-        *result = SafeArrayCreateVector(VT_I4, 0, (ULONG)items_used);
+        /* The fragment root a window hosts answers no id of its own: UIA
+           takes the window's. Its reply names it as its own root
+           (session, root, node with node = root). */
+        if (items_used == 3 && items[1] == items[2]) {
+            *result = 0;
+            return S_OK;
+        }
+        /* UI Automation's contract for a fragment element: UiaAppendRuntimeId
+           first, then values unique within the fragment. UIA prefixes the
+           host window's own id, which makes the whole id unique and ties the
+           element -- and every event raised on it -- to that window. Without
+           the prefix the tree still walks, but clients never hear the
+           element's events. */
+        *result = SafeArrayCreateVector(VT_I4, 0, (ULONG)items_used + 1);
         if (*result == 0) {
             return E_OUTOFMEMORY;
         }
@@ -3157,6 +3176,7 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_runtime_id(
             *result = 0;
             return FAILED(hr) ? hr : E_FAIL;
         }
+        array_data[0] = UiaAppendRuntimeId;
         for (index = 0; index < (LONG)items_used; index++) {
             if (items[index] > (uint32_t)LONG_MAX) {
                 SafeArrayUnaccessData(*result);
@@ -3164,7 +3184,7 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_runtime_id(
                 *result = 0;
                 return E_FAIL;
             }
-            array_data[index] = (LONG)items[index];
+            array_data[index + 1] = (LONG)items[index];
         }
         hr = SafeArrayUnaccessData(*result);
         if (FAILED(hr)) {
