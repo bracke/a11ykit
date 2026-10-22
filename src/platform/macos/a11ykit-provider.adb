@@ -1,3 +1,4 @@
+with Interfaces.C;
 with System;
 with Ada.Unchecked_Deallocation;
 
@@ -445,7 +446,24 @@ package body A11ykit.Provider is
 
    --  Queries reach this host's provider through the window system's own
    --  message loop, which the application already pumps.
-   procedure Service is null;
+   --  Requests from an accessibility client reach the process through the
+   --  main thread's run loop; let it handle whatever is waiting. An
+   --  application whose event loop already runs it pays one empty pass.
+   procedure Service is
+      Default_Mode : constant System.Address
+      with Import, Convention => C, External_Name => "kCFRunLoopDefaultMode";
+
+      function Run_In_Mode
+        (Mode : System.Address; Seconds : Long_Float; Return_After_Source : Interfaces.C.unsigned_char)
+         return Interfaces.C.int
+      with Import, Convention => C, External_Name => "CFRunLoopRunInMode";
+
+      Ignored : Interfaces.C.int;
+   begin
+      if Host_Object /= System.Null_Address then
+         Ignored := Run_In_Mode (Default_Mode, 0.0, 0);
+      end if;
+   end Service;
 
    --  This host's window system tells its screen reader about activation.
    procedure Set_Active (Active : Boolean) is null;

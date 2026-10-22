@@ -568,7 +568,13 @@ package body A11ykit.Provider is
 
    --  Queries reach this host's provider through the window system's own
    --  message loop, which the application already pumps.
-   procedure Service is null;
+   --  Answer the screen reader's requests to the provider's window.
+   procedure Service is
+   begin
+      if Provider_Host /= System.Null_Address then
+         Native.Pump_Callback_Provider_Host_Window (Provider_Host);
+      end if;
+   end Service;
 
    --  This host's window system tells its screen reader about activation.
    procedure Set_Active (Active : Boolean) is null;

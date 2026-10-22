@@ -5066,6 +5066,25 @@ void *a11y_uia_create_callback_provider_host_window(
 #endif
 }
 
+/* UI Automation asks the host window for its provider with WM_GETOBJECT,
+   sent to the thread that owns the window; answer whatever is waiting. */
+void a11y_uia_pump_callback_provider_host_window(void *handle) {
+#if defined(_WIN32)
+    struct a11y_uia_live_callback_provider_host *host =
+        (struct a11y_uia_live_callback_provider_host *)handle;
+    MSG message;
+    if (host == 0 || host->hwnd == 0) {
+        return;
+    }
+    while (PeekMessageW(&message, host->hwnd, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+#else
+    (void)handle;
+#endif
+}
+
 void a11y_uia_destroy_callback_provider_host_window(void *handle) {
 #if defined(_WIN32)
     struct a11y_uia_live_callback_provider_host *host =

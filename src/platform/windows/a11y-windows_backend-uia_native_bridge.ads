@@ -692,6 +692,10 @@ package A11y.Windows_Backend.UIA_Native_Bridge is
    with Import, Convention => C,
         External_Name => "a11y_uia_create_callback_provider_host_window";
 
+   procedure Pump_Callback_Provider_Host_Window (Handle : System.Address)
+   with Import, Convention => C,
+        External_Name => "a11y_uia_pump_callback_provider_host_window";
+
    procedure Destroy_Callback_Provider_Host_Window (Handle : System.Address)
    with Import, Convention => C,
         External_Name => "a11y_uia_destroy_callback_provider_host_window";
