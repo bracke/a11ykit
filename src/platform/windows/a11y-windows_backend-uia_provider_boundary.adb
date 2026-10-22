@@ -329,6 +329,11 @@ package body A11y.Windows_Backend.UIA_Provider_Boundary is
       case Requested is
          when A11y.Windows_Backend.UIA_Com_Providers.IUnknown_Interface =>
             return False;
+         --  Pattern methods -- SelectionItem, Value, RangeValue, Window -- are
+         --  routed through the element's simple provider (see the ABI
+         --  surface), so the requests they become are accepted here too.
+         --  Refusing them made every such call fail: a screen reader's
+         --  SelectionItem.Select never reached the application.
          when A11y.Windows_Backend.UIA_Com_Providers.Raw_Element_Provider_Simple =>
            return Request in
               Get_Provider_Options |
@@ -336,7 +341,11 @@ package body A11y.Windows_Backend.UIA_Provider_Boundary is
               Get_Property_Value |
               Get_Pattern_Provider |
               Invoke_Action |
-              Set_Value;
+              Get_Value |
+              Set_Value |
+              Get_Selection |
+              Set_Selection |
+              Get_Surface;
          when A11y.Windows_Backend.UIA_Com_Providers.Raw_Element_Provider_Fragment =>
             return Request in
               Navigate_Fragment |

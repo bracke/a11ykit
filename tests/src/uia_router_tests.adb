@@ -2,6 +2,7 @@ with Ada.Calendar;
 with A11ykit;
 with A11ykit.Tree;
 with A11ykit.UIA_Snapshots;
+with A11y.Native_Requests;
 with Ada.Command_Line;
 with Ada.Exceptions;
 with Interfaces;
@@ -8939,6 +8940,81 @@ begin
             & Context.Last_Status'Image & Integer (Left)'Image & Integer (Top)'Image
             & Integer (Width)'Image & Integer (Height)'Image);
       end;
+   end;
+
+   --  A screen reader selecting an item of a list, as Narrator does with
+   --  SelectionItem.Select: the call succeeds and the application is asked to
+   --  carry it out, for the item asked.
+   declare
+      use Ada.Strings.Unbounded;
+      use type A11y.Native_Requests.Request_Kind;
+
+      package Native renames A11y.Windows_Backend.UIA_Native_Bridge;
+      package Callbacks renames A11y.Windows_Backend.UIA_Native_Callbacks;
+
+      type Bundle_Access is access A11y.Windows_Backend.UIA_Request_Router.Snapshot_Bundle;
+      type Registry_Access is access A11y.Windows_Backend.UIA_Provider_Registry.Provider_Registry;
+      type Table_Access is access A11y.Windows_Backend.UIA_COM_Object_Exports.COM_Object_Export_Table;
+
+      Tree : A11ykit.Tree.Accessibility_Tree;
+      Bundle : constant Bundle_Access := new A11y.Windows_Backend.UIA_Request_Router.Snapshot_Bundle;
+      Providers : constant Registry_Access := new A11y.Windows_Backend.UIA_Provider_Registry.Provider_Registry;
+      Objects : constant Table_Access := new A11y.Windows_Backend.UIA_COM_Object_Exports.COM_Object_Export_Table;
+      Session : constant A11y.Native_Identity.Backend_Session_Id := A11y.Native_Identity.Create_Session;
+      Root : A11y.Node_Ids.Node_Id;
+      Result : A11y.Results.Result;
+      Context : aliased Callbacks.Callback_Context;
+      Frame : array (0 .. 7) of aliased Native.Native_UInt64 := [others => 0];
+      Provider, Object : Interfaces.Unsigned_64;
+      Code : Native.Native_UInt32;
+      Asked : A11y.Native_Requests.Request;
+      Got_Request : Boolean;
+
+      function Node
+        (Role : A11ykit.Role; Name : String; Y : Integer; Parent : Natural; Selected : Boolean := False)
+         return A11ykit.Tree.Node
+      is
+        (Node_Role   => Role,
+         Bounds      => (X => 10, Y => Y, Width => 200, Height => 20),
+         Name        => To_Unbounded_String (Name),
+         Description => Null_Unbounded_String,
+         Node_State  => (Selected => Selected, others => <>),
+         Parent      => Parent);
+   begin
+      Tree.Nodes.Append (Node (A11ykit.Role_Window, "folder", 0, 0));
+      Tree.Nodes.Append (Node (A11ykit.Role_List, "Files", 10, 1));
+      Tree.Nodes.Append (Node (A11ykit.Role_List_Item, "alpha.txt", 20, 2));
+      Tree.Nodes.Append (Node (A11ykit.Role_List_Item, "beta.txt", 40, 2, Selected => True));
+      Tree.Nodes.Append (Node (A11ykit.Role_List_Item, "gamma.txt", 60, 2));
+      Tree.Focused := 4;
+
+      Root := A11ykit.UIA_Snapshots.Root_Node (Tree, Result);
+      A11ykit.UIA_Snapshots.Build_Snapshots (Tree, Root, Session, Bundle.all, Result);
+      Check (A11y.Results.Succeeded (Result), "UIA snapshot builds for a list: " & Result.Status'Image);
+
+      Context.Registry := Providers.all'Unchecked_Access;
+      Context.Object_Table := Objects.all'Unchecked_Access;
+      Context.Snapshots := Bundle.all'Unchecked_Access;
+
+      while A11y.Native_Requests.Pop (Asked) loop
+         null;
+      end loop;
+
+      Callbacks.Ensure_Export (Context, 5, Provider, Object);
+      Frame (0) := Native.Native_UInt64 (A11y.Native_Identity.To_Natural (Session));
+      Frame (1) := Provider;
+      Frame (2) := Object;
+      Frame (3) := 2;
+      Frame (4) := Native.Native_UInt64
+        (A11y.Windows_Backend.UIA_ABI_Surface.Method_Code
+           (A11y.Windows_Backend.UIA_ABI_Surface.Selection_Item_Provider_Select));
+      Code := Callbacks.Dispatch_Interface_Frame_Callback (Frame (0)'Access, Context'Address);
+      Check (Code = 0,
+             "UIA SelectionItem.Select on a list item succeeds:" & Code'Image & " status "
+             & Context.Last_Status'Image);
+      Got_Request := A11y.Native_Requests.Pop (Asked);
+      Check (Got_Request and then Asked.Kind = A11y.Native_Requests.Activate,
+             "UIA SelectionItem.Select asks the application to select the item");
    end;
 
    if Failures = 0 then
