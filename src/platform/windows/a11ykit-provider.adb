@@ -77,6 +77,8 @@ package body A11ykit.Provider is
    --  republish of the same window keeps its host and says only what moved.
    Published_Root : A11y.Node_Ids.Node_Id := A11y.Node_Ids.No_Node;
    Last_Focus     : A11y.Node_Ids.Node_Id := A11y.Node_Ids.No_Node;
+   --  The selected node a screen reader was last told about; 0 for none.
+   Last_Selected  : Natural := 0;
 
    function Method (Item : ABI.UIA_ABI_Method) return Native.Native_UInt32 is
      (Native.Native_UInt32 (ABI.Method_Code (Item)));
@@ -356,6 +358,21 @@ package body A11ykit.Provider is
 
    --  Raise Event_Id (or, with Structure, a children-changed event) on the
    --  tree's node Node, in its window's fragment.
+   --  The first selected item or row of a tree, by its node number; 0 when
+   --  nothing is selected.
+   function First_Selected (Tree : A11ykit.Tree.Accessibility_Tree) return Natural is
+   begin
+      for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
+         if Tree.Nodes (Index).Node_State.Selected
+           and then Tree.Nodes (Index).Node_Role in
+             A11ykit.Role_List_Item | A11ykit.Role_Table_Row
+         then
+            return Index;
+         end if;
+      end loop;
+      return 0;
+   end First_Selected;
+
    procedure Raise_On (Node : Natural; Event_Id : Native.Native_UInt32; Structure : Boolean := False) is
       Window   : Natural;
       Root_P, Root_O, Provider, Object : Native.Native_UInt64;
@@ -404,6 +421,7 @@ package body A11ykit.Provider is
       Published := False;
       Published_Root := A11y.Node_Ids.No_Node;
       Last_Focus := A11y.Node_Ids.No_Node;
+      Last_Selected := 0;
       Callback_Context.Exports := [others => <>];
       if Provider_Host /= System.Null_Address then
          Native.Destroy_Callback_Provider_Host_Window (Provider_Host);
@@ -507,6 +525,18 @@ package body A11ykit.Provider is
                Delivered := 1;
             end if;
          end;
+         --  A new single selection is announced with ElementSelected on the
+         --  item, which Narrator reads when the selection moves -- whether or
+         --  not the keyboard focus moved with it.
+         declare
+            Selected : constant Natural := First_Selected (Last_Tree);
+         begin
+            if Selected /= 0 and then Selected /= Last_Selected then
+               Raise_On (Selected, 20_012);
+               Delivered := Delivered + 1;
+            end if;
+            Last_Selected := Selected;
+         end;
 
          Free (Semantic);
          A11ykit.Provider_Runtime.Record_Publish_Result
@@ -547,6 +577,7 @@ package body A11ykit.Provider is
       if Published then
          Published_Root := Root;
          Last_Focus := Snapshots.Fragment.Focused_Node;
+         Last_Selected := First_Selected (Tree);
          --  Navigation back to the root names the root's own provider.
          Callback_Context.Exports := [others => <>];
          if A11y.Node_Ids.To_Natural (Root) in Callback_Context.Exports'Range then
