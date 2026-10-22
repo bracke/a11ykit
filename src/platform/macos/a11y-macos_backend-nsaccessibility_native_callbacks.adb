@@ -8,6 +8,7 @@ with A11y.MacOS_Backend.NSAccessibility_Hierarchy;
 with A11y.MacOS_Backend.NSAccessibility_Mappings;
 with A11y.MacOS_Backend.NSAccessibility_Properties;
 with A11y.MacOS_Backend.NSAccessibility_Provider_Boundary;
+with A11y.Element_Actions;
 with A11y.Geometry;
 with A11y.Native_Identity;
 with A11y.Native_Requests;
@@ -166,6 +167,17 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
          View.Snapshots.Hierarchy.Node := Node;
          View.Snapshots.Action_Node := Node;
          View.Snapshots.Relation_Source := Node;
+         --  What can be done to it, and its states, are the element's own.
+         declare
+            Metadata : constant A11y.Semantic_Snapshots.Node_Metadata :=
+              A11y.Semantic_Snapshots.Metadata (View.Snapshots.Properties.Nodes, Node);
+         begin
+            if Metadata.Present then
+               View.Snapshots.Actions :=
+                 A11y.Element_Actions.For_Element (Metadata.Role, Metadata.States, Metadata.Capabilities);
+               View.Snapshots.Action_States := Metadata.States;
+            end if;
+         end;
       end if;
    exception
       when others =>
@@ -222,6 +234,11 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
            and then Operand = ABI.Attribute_Code (A11y.MacOS_Backend.NSAccessibility_Properties.Focused)
          then
             A11y.Native_Requests.Push ((A11y.Native_Requests.Focus, View.Snapshots.Properties.Id));
+         elsif Selector = ABI.Selector_Code (ABI.Accessibility_Set_Value)
+           and then Operand = ABI.Attribute_Code (A11y.MacOS_Backend.NSAccessibility_Properties.Selected)
+         then
+            --  Selecting an item is what clicking it does.
+            A11y.Native_Requests.Push ((A11y.Native_Requests.Activate, View.Snapshots.Properties.Id));
          end if;
       end if;
       return Reply.Status = A11y.Results.Success;

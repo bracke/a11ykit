@@ -97,7 +97,9 @@ package body A11ykit.Compatibility is
       case Role is
          when A11ykit.Role_Window | A11ykit.Role_Dialog | A11ykit.Role_Application =>
             Result (A11y.Capabilities.Surface) := True;
-         when A11ykit.Role_Button =>
+         --  An item of a list or table is acted on, as a button is: a click
+         --  selects it, and a screen reader's activate is that click.
+         when A11ykit.Role_Button | A11ykit.Role_List_Item | A11ykit.Role_Table_Row =>
             Result (A11y.Capabilities.Action) := True;
          when A11ykit.Role_Text_Input =>
             Result (A11y.Capabilities.Text) := True;

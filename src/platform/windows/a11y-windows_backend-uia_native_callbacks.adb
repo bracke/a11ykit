@@ -433,6 +433,12 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
             A11y.Native_Requests.Push ((A11y.Native_Requests.Activate, Context_View.Snapshots.Properties.Id));
          elsif Request_Frame.Method_Code
               = A11y.Windows_Backend.UIA_ABI_Surface.Method_Code
+                  (A11y.Windows_Backend.UIA_ABI_Surface.Selection_Item_Provider_Select)
+         then
+            --  Selecting an item is what clicking it does.
+            A11y.Native_Requests.Push ((A11y.Native_Requests.Activate, Context_View.Snapshots.Properties.Id));
+         elsif Request_Frame.Method_Code
+              = A11y.Windows_Backend.UIA_ABI_Surface.Method_Code
                   (A11y.Windows_Backend.UIA_ABI_Surface.Fragment_Set_Focus)
          then
             A11y.Native_Requests.Push ((A11y.Native_Requests.Focus, Context_View.Snapshots.Properties.Id));
