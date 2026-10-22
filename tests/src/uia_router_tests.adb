@@ -1,5 +1,6 @@
 with Ada.Calendar;
 with Ada.Command_Line;
+with Ada.Exceptions;
 with Interfaces;
 with Interfaces.C;
 with Ada.Strings.Unbounded;
@@ -61,47 +62,6 @@ with A11y.Windows_Backend.UIA_Values;
 with A11y.Windows_Backend.UIA_Bridge_Audit;
 
 procedure UIA_Router_Tests is
-   procedure Raise_Main_Stack_Limit is
-      use Interfaces.C;
-
-      RLIMIT_STACK : constant int := 3;
-      Target_Stack : constant unsigned_long := 512 * 1024 * 1024;
-      RLIM_INFINITY : constant unsigned_long := unsigned_long'Last;
-
-      type Rlimit is record
-         Cur : unsigned_long;
-         Max : unsigned_long;
-      end record
-        with Convention => C;
-
-      function Getrlimit
-        (Resource : int;
-         Limit    : access Rlimit)
-         return int
-        with Import, Convention => C, External_Name => "getrlimit";
-
-      function Setrlimit
-        (Resource : int;
-         Limit    : access constant Rlimit)
-         return int
-        with Import, Convention => C, External_Name => "setrlimit";
-
-      Limit : aliased Rlimit;
-      Ignored : int;
-   begin
-      if Getrlimit (RLIMIT_STACK, Limit'Access) = 0
-        and then Limit.Cur < Target_Stack
-      then
-         if Limit.Max = RLIM_INFINITY or else Limit.Max >= Target_Stack then
-            Limit.Cur := Target_Stack;
-         else
-            Limit.Cur := Limit.Max;
-         end if;
-
-         Ignored := Setrlimit (RLIMIT_STACK, Limit'Access);
-      end if;
-   end Raise_Main_Stack_Limit;
-
    procedure Run is
    use type A11y.Event_Sequence;
    use type A11y.Actions.Action_Id;
@@ -8655,6 +8615,22 @@ begin
    end if;
    end Run;
 begin
-   Raise_Main_Stack_Limit;
-   Run;
+   --  The suite's frames are large. A task's stack is sized where it starts,
+   --  on every host; the main thread's is fixed by the system on Windows and
+   --  macOS, where raising the limit afterwards does not reach it.
+   declare
+      task Runner with Storage_Size => 512 * 1024 * 1024;
+
+      task body Runner is
+      begin
+         Run;
+      exception
+         when Error : others =>
+            Ada.Text_IO.Put_Line
+              ("UIA router tests ended by " & Ada.Exceptions.Exception_Information (Error));
+            Ada.Command_Line.Set_Exit_Status (Ada.Command_Line.Failure);
+      end Runner;
+   begin
+      null;
+   end;
 end UIA_Router_Tests;
