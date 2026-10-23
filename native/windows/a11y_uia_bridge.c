@@ -1084,12 +1084,7 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_options_impl(
     if (result == 0) {
         return E_INVALIDARG;
     }
-    /* Created in a single-threaded apartment (the window thread initializes
-       COM apartment-threaded), so UI Automation must follow COM's rules and
-       call the provider through that apartment, as Microsoft's providers
-       declare. */
-    *result = (enum ProviderOptions)(ProviderOptions_ServerSideProvider
-                                     | ProviderOptions_UseComThreading);
+    *result = ProviderOptions_ServerSideProvider;
     if (provider->report != 0) {
         provider->report->options_callback_session = provider->session;
         provider->report->options_callback_provider = provider->provider;
