@@ -455,7 +455,8 @@ package body A11y.Linux.DBus_Messages is
       Second_Colon : constant Natural :=
         (if First_Colon = 0 then 0
          else Ada.Strings.Fixed.Index (Event_Name (First_Colon + 1 .. Event_Name'Last), ":"));
-      Class : constant String := (if First_Colon = 0 then Event_Name else Event_Name (Event_Name'First .. First_Colon - 1));
+      Class : constant String :=
+        (if First_Colon = 0 then Event_Name else Event_Name (Event_Name'First .. First_Colon - 1));
       Name  : constant String :=
         (if First_Colon = 0 then ""
          elsif Second_Colon = 0 then Event_Name (First_Colon + 1 .. Event_Name'Last)

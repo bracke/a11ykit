@@ -278,7 +278,6 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
          return 50_025;
    end Native_Control_Type_Id;
 
-
    --  One snapshot answers for every node of the published tree, from the
    --  metadata of the node it is pointed at. Before a request is answered,
    --  point it at the node of the provider the request came to, so a child
@@ -1507,7 +1506,6 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
          end if;
          return 16#8000_4005#;
    end Copy_Window_Query_Callback;
-
 
    procedure Ensure_Export
      (Context  : in out Callback_Context;

@@ -115,7 +115,6 @@ package body A11ykit.Provider is
    --  The sequence number given to the last event handed to the backend.
    Last_Delivered : A11y.Event_Sequence := A11y.No_Event;
 
-
    function Current_User return A11y.Linux.DBus_Auth.External_User_Id is
       User_Id : Natural := 0;
    begin
@@ -371,7 +370,6 @@ package body A11ykit.Provider is
    begin
       Serve (16);
    end Service;
-
 
    --  The node the application marked active, or 0.
    function Active_Window (Tree : A11ykit.Tree.Accessibility_Tree) return Natural is
