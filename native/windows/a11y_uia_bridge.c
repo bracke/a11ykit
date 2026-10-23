@@ -1489,7 +1489,11 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_invoke_query_interface(
         IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)provider);
         return S_OK;
     }
-    return E_NOINTERFACE;
+    /* COM identity: every interface reaches the object's others. */
+    return provider != 0
+        ? a11y_uia_callback_provider_query_interface(
+              (IRawElementProviderSimple *)provider, iid, object)
+        : E_NOINTERFACE;
 }
 
 static ULONG STDMETHODCALLTYPE a11y_uia_callback_invoke_add_ref(
@@ -1562,7 +1566,11 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_toggle_query_interface(
         IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)provider);
         return S_OK;
     }
-    return E_NOINTERFACE;
+    /* COM identity: every interface reaches the object's others. */
+    return provider != 0
+        ? a11y_uia_callback_provider_query_interface(
+              (IRawElementProviderSimple *)provider, iid, object)
+        : E_NOINTERFACE;
 }
 
 static ULONG STDMETHODCALLTYPE a11y_uia_callback_toggle_add_ref(
@@ -1680,7 +1688,11 @@ a11y_uia_callback_expand_collapse_query_interface(
         IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)provider);
         return S_OK;
     }
-    return E_NOINTERFACE;
+    /* COM identity: every interface reaches the object's others. */
+    return provider != 0
+        ? a11y_uia_callback_provider_query_interface(
+              (IRawElementProviderSimple *)provider, iid, object)
+        : E_NOINTERFACE;
 }
 
 static ULONG STDMETHODCALLTYPE a11y_uia_callback_expand_collapse_add_ref(
@@ -1834,7 +1846,11 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_scroll_item_query_interface(
         IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)provider);
         return S_OK;
     }
-    return E_NOINTERFACE;
+    /* COM identity: every interface reaches the object's others. */
+    return provider != 0
+        ? a11y_uia_callback_provider_query_interface(
+              (IRawElementProviderSimple *)provider, iid, object)
+        : E_NOINTERFACE;
 }
 
 static ULONG STDMETHODCALLTYPE a11y_uia_callback_scroll_item_add_ref(
@@ -1919,7 +1935,11 @@ a11y_uia_callback_selection_item_query_interface(
         IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)provider);
         return S_OK;
     }
-    return E_NOINTERFACE;
+    /* COM identity: every interface reaches the object's others. */
+    return provider != 0
+        ? a11y_uia_callback_provider_query_interface(
+              (IRawElementProviderSimple *)provider, iid, object)
+        : E_NOINTERFACE;
 }
 
 static ULONG STDMETHODCALLTYPE a11y_uia_callback_selection_item_add_ref(
@@ -2185,7 +2205,11 @@ a11y_uia_callback_range_value_query_interface(
         IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)provider);
         return S_OK;
     }
-    return E_NOINTERFACE;
+    /* COM identity: every interface reaches the object's others. */
+    return provider != 0
+        ? a11y_uia_callback_provider_query_interface(
+              (IRawElementProviderSimple *)provider, iid, object)
+        : E_NOINTERFACE;
 }
 
 static ULONG STDMETHODCALLTYPE a11y_uia_callback_range_value_add_ref(
@@ -2524,7 +2548,11 @@ a11y_uia_callback_window_query_interface(
         IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)provider);
         return S_OK;
     }
-    return E_NOINTERFACE;
+    /* COM identity: every interface reaches the object's others. */
+    return provider != 0
+        ? a11y_uia_callback_provider_query_interface(
+              (IRawElementProviderSimple *)provider, iid, object)
+        : E_NOINTERFACE;
 }
 
 static ULONG STDMETHODCALLTYPE a11y_uia_callback_window_add_ref(
@@ -2845,7 +2873,14 @@ a11y_uia_callback_advise_events_query_interface(
         IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)provider);
         return S_OK;
     }
-    return E_NOINTERFACE;
+    /* COM identity: from any of the object's interfaces every other one
+       is reachable. UI Automation asks the advise-events interface for
+       IRawElementProviderSimple before it registers a listener; refused,
+       the subscription was dropped and no raised event was delivered. */
+    return provider != 0
+        ? a11y_uia_callback_provider_query_interface(
+              (IRawElementProviderSimple *)provider, iid, object)
+        : E_NOINTERFACE;
 }
 
 static ULONG STDMETHODCALLTYPE a11y_uia_callback_advise_events_add_ref(
