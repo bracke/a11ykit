@@ -17,6 +17,37 @@
 #include <windows.h>
 #include <oleauto.h>
 #include <uiautomation.h>
+#include <stdio.h>
+
+/* A11YKIT_TRACE: each call UI Automation makes into a provider, on stderr. */
+static int a11y_uia_trace_state = -1;
+static int a11y_uia_trace_lines = 0;
+
+static int a11y_uia_tracing(void) {
+    if (a11y_uia_trace_state < 0) {
+        const char *value = getenv("A11YKIT_TRACE");
+        a11y_uia_trace_state = value != 0 && value[0] != 0 && value[0] != '0';
+    }
+    return a11y_uia_trace_state && a11y_uia_trace_lines < 20000;
+}
+
+static void a11y_uia_trace(const char *method, uint64_t provider, long arg,
+                           HRESULT hr, long long out) {
+    ++a11y_uia_trace_lines;
+    fprintf(stderr, "uia %lu: %s on %llu (%ld): 0x%08lx -> %lld\n",
+            (unsigned long)GetCurrentThreadId(), method,
+            (unsigned long long)provider, arg, (unsigned long)hr, out);
+    fflush(stderr);
+}
+
+static long long a11y_uia_trace_array_length(SAFEARRAY *array) {
+    LONG upper = -1;
+    if (array == 0) {
+        return -1;
+    }
+    SafeArrayGetUBound(array, 1, &upper);
+    return (long long)upper + 1;
+}
 
 /* UIAutomationCoreApi.h's marker for a runtime id the host completes; some
    MinGW headers leave it out. */
@@ -1031,7 +1062,7 @@ static HRESULT a11y_uia_callback_provider_state(
     return (HRESULT)callback_result;
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_options(
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_options_impl(
     IRawElementProviderSimple *self,
     enum ProviderOptions *result) {
     struct a11y_uia_callback_provider *provider =
@@ -1062,7 +1093,19 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_options(
             ? &provider->report->provider_options_callback_succeeded : 0);
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_pattern(
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_options(
+    IRawElementProviderSimple *self,
+    enum ProviderOptions *result) {
+    HRESULT hr = a11y_uia_callback_provider_get_options_impl(self, result);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = ((struct a11y_uia_callback_provider *)self);
+        a11y_uia_trace("provider_get_options", owner != 0 ? owner->provider : 0, 0, hr, (long long)(result!=0?(int)*result:-1));
+    }
+    return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_pattern_impl(
     IRawElementProviderSimple *self,
     PATTERNID pattern_id,
     IUnknown **result) {
@@ -1162,6 +1205,19 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_pattern(
     return hr;
 }
 
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_pattern(
+    IRawElementProviderSimple *self,
+    PATTERNID pattern_id,
+    IUnknown **result) {
+    HRESULT hr = a11y_uia_callback_provider_get_pattern_impl(self, pattern_id, result);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = ((struct a11y_uia_callback_provider *)self);
+        a11y_uia_trace("provider_get_pattern", owner != 0 ? owner->provider : 0, (long)pattern_id, hr, (long long)(result!=0&&*result!=0));
+    }
+    return hr;
+}
+
 /* The tree's rectangles are in the window's client area; UI Automation's are
    on the screen. Move one by where the window hosting the element's
    fragment shows its client area. */
@@ -1184,7 +1240,7 @@ static void a11y_uia_client_to_screen(struct a11y_uia_callback_provider *provide
     }
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_property(
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_property_impl(
     IRawElementProviderSimple *self,
     PROPERTYID property_id,
     VARIANT *result) {
@@ -1325,7 +1381,20 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_property(
     return hr;
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_host(
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_property(
+    IRawElementProviderSimple *self,
+    PROPERTYID property_id,
+    VARIANT *result) {
+    HRESULT hr = a11y_uia_callback_provider_get_property_impl(self, property_id, result);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = ((struct a11y_uia_callback_provider *)self);
+        a11y_uia_trace("provider_get_property", owner != 0 ? owner->provider : 0, (long)property_id, hr, (long long)(result!=0?result->vt:-1));
+    }
+    return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_host_impl(
     IRawElementProviderSimple *self,
     IRawElementProviderSimple **result) {
     struct a11y_uia_callback_provider *provider =
@@ -1360,6 +1429,18 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_host(
         return host_hr;
     }
     return (HRESULT)callback_result;
+}
+
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_get_host(
+    IRawElementProviderSimple *self,
+    IRawElementProviderSimple **result) {
+    HRESULT hr = a11y_uia_callback_provider_get_host_impl(self, result);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = ((struct a11y_uia_callback_provider *)self);
+        a11y_uia_trace("provider_get_host", owner != 0 ? owner->provider : 0, 0, hr, (long long)(result!=0&&*result!=0));
+    }
+    return hr;
 }
 
 static const IRawElementProviderSimpleVtbl a11y_uia_callback_provider_vtbl = {
@@ -3026,7 +3107,7 @@ static struct a11y_uia_callback_provider *a11y_uia_callback_element_for(
     return a11y_uia_callback_provider_clone(root, provider_id, object_token);
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_navigate(
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_navigate_impl(
     IRawElementProviderFragment *self,
     enum NavigateDirection direction,
     IRawElementProviderFragment **result) {
@@ -3094,7 +3175,20 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_navigate(
             ? &provider->report->fragment_navigate_callback_succeeded : 0);
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_runtime_id(
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_navigate(
+    IRawElementProviderFragment *self,
+    enum NavigateDirection direction,
+    IRawElementProviderFragment **result) {
+    HRESULT hr = a11y_uia_callback_fragment_navigate_impl(self, direction, result);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = a11y_uia_callback_fragment_owner(self);
+        a11y_uia_trace("fragment_navigate", owner != 0 ? owner->provider : 0, (long)direction, hr, (long long)(result!=0&&*result!=0?a11y_uia_callback_fragment_owner(*result)->provider:0));
+    }
+    return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_runtime_id_impl(
     IRawElementProviderFragment *self,
     SAFEARRAY **result) {
     struct a11y_uia_callback_provider *provider =
@@ -3196,7 +3290,19 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_runtime_id(
     return hr;
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_bounding_rectangle(
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_runtime_id(
+    IRawElementProviderFragment *self,
+    SAFEARRAY **result) {
+    HRESULT hr = a11y_uia_callback_fragment_runtime_id_impl(self, result);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = a11y_uia_callback_fragment_owner(self);
+        a11y_uia_trace("fragment_runtime_id", owner != 0 ? owner->provider : 0, 0, hr, a11y_uia_trace_array_length(result!=0?*result:0));
+    }
+    return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_bounding_rectangle_impl(
     IRawElementProviderFragment *self,
     struct UiaRect *result) {
     struct a11y_uia_callback_provider *provider =
@@ -3254,7 +3360,19 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_bounding_rectangle(
     return hr;
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_embedded_roots(
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_bounding_rectangle(
+    IRawElementProviderFragment *self,
+    struct UiaRect *result) {
+    HRESULT hr = a11y_uia_callback_fragment_bounding_rectangle_impl(self, result);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = a11y_uia_callback_fragment_owner(self);
+        a11y_uia_trace("fragment_bounding_rectangle", owner != 0 ? owner->provider : 0, 0, hr, (long long)(result!=0?result->width:-1));
+    }
+    return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_embedded_roots_impl(
     IRawElementProviderFragment *self,
     SAFEARRAY **result) {
     struct a11y_uia_callback_provider *provider =
@@ -3283,7 +3401,19 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_embedded_roots(
             ? &provider->report->fragment_embedded_roots_callback_succeeded : 0);
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_set_focus(
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_embedded_roots(
+    IRawElementProviderFragment *self,
+    SAFEARRAY **result) {
+    HRESULT hr = a11y_uia_callback_fragment_embedded_roots_impl(self, result);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = a11y_uia_callback_fragment_owner(self);
+        a11y_uia_trace("fragment_embedded_roots", owner != 0 ? owner->provider : 0, 0, hr, a11y_uia_trace_array_length(result!=0?*result:0));
+    }
+    return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_set_focus_impl(
     IRawElementProviderFragment *self) {
     struct a11y_uia_callback_provider *provider =
         a11y_uia_callback_fragment_owner(self);
@@ -3307,7 +3437,18 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_set_focus(
             ? &provider->report->fragment_set_focus_callback_succeeded : 0);
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_root(
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_set_focus(
+    IRawElementProviderFragment *self) {
+    HRESULT hr = a11y_uia_callback_fragment_set_focus_impl(self);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = a11y_uia_callback_fragment_owner(self);
+        a11y_uia_trace("fragment_set_focus", owner != 0 ? owner->provider : 0, 0, hr, 0);
+    }
+    return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_root_impl(
     IRawElementProviderFragment *self,
     IRawElementProviderFragmentRoot **result) {
     struct a11y_uia_callback_provider *provider =
@@ -3342,6 +3483,18 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_root(
             *result = (IRawElementProviderFragmentRoot *)root->fragment_root_iface;
             IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)root);
         }
+    }
+    return hr;
+}
+
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_fragment_root(
+    IRawElementProviderFragment *self,
+    IRawElementProviderFragmentRoot **result) {
+    HRESULT hr = a11y_uia_callback_fragment_root_impl(self, result);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = a11y_uia_callback_fragment_owner(self);
+        a11y_uia_trace("fragment_root", owner != 0 ? owner->provider : 0, 0, hr, (long long)(result!=0&&*result!=0?a11y_uia_callback_fragment_root_owner(*result)->provider:0));
     }
     return hr;
 }
@@ -3388,7 +3541,7 @@ static ULONG STDMETHODCALLTYPE a11y_uia_callback_fragment_root_release(
         (IRawElementProviderSimple *)provider);
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_root_from_point(
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_root_from_point_impl(
     IRawElementProviderFragmentRoot *self,
     double x,
     double y,
@@ -3460,7 +3613,21 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_root_from_point(
     return hr;
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_root_get_focus(
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_root_from_point(
+    IRawElementProviderFragmentRoot *self,
+    double x,
+    double y,
+    IRawElementProviderFragment **result) {
+    HRESULT hr = a11y_uia_callback_root_from_point_impl(self, x, y, result);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = a11y_uia_callback_fragment_root_owner(self);
+        a11y_uia_trace("root_from_point", owner != 0 ? owner->provider : 0, (long)x, hr, (long long)(result!=0&&*result!=0?a11y_uia_callback_fragment_owner(*result)->provider:0));
+    }
+    return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_root_get_focus_impl(
     IRawElementProviderFragmentRoot *self,
     IRawElementProviderFragment **result) {
     struct a11y_uia_callback_provider *provider =
@@ -3514,6 +3681,18 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_root_get_focus(
     if (SUCCEEDED(hr) && provider != 0 && provider->fragment_iface != 0) {
         *result = (IRawElementProviderFragment *)provider->fragment_iface;
         IRawElementProviderSimple_AddRef((IRawElementProviderSimple *)provider);
+    }
+    return hr;
+}
+
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_root_get_focus(
+    IRawElementProviderFragmentRoot *self,
+    IRawElementProviderFragment **result) {
+    HRESULT hr = a11y_uia_callback_root_get_focus_impl(self, result);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = a11y_uia_callback_fragment_root_owner(self);
+        a11y_uia_trace("root_get_focus", owner != 0 ? owner->provider : 0, 0, hr, (long long)(result!=0&&*result!=0?a11y_uia_callback_fragment_owner(*result)->provider:0));
     }
     return hr;
 }
@@ -5556,7 +5735,13 @@ a11y_uia_hresult a11y_uia_raise_element_event(void *handle,
             SafeArrayDestroy(ids);
         }
     } else {
+        if (a11y_uia_tracing()) {
+            a11y_uia_trace("raise begin", provider_id, (long)event_id, S_OK, (long long)root->provider);
+        }
         hr = UiaRaiseAutomationEvent((IRawElementProviderSimple *)element, (EVENTID)event_id);
+        if (a11y_uia_tracing()) {
+            a11y_uia_trace("raise end", provider_id, (long)event_id, hr, 0);
+        }
     }
     a11y_uia_callback_provider_release((IRawElementProviderSimple *)element);
     return (a11y_uia_hresult)hr;
