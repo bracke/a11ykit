@@ -761,7 +761,7 @@ static const IRawElementProviderSimpleVtbl a11y_uia_minimal_provider_vtbl = {
     a11y_uia_minimal_provider_get_host
 };
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_query_interface(
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_query_interface_impl(
     IRawElementProviderSimple *self,
     REFIID iid,
     void **object) {
@@ -827,6 +827,19 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_query_interface(
     }
 
     return E_NOINTERFACE;
+}
+
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_provider_query_interface(
+    IRawElementProviderSimple *self,
+    REFIID iid,
+    void **object) {
+    HRESULT hr = a11y_uia_callback_provider_query_interface_impl(self, iid, object);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = ((struct a11y_uia_callback_provider *)self);
+        a11y_uia_trace("provider_query_interface", owner != 0 ? owner->provider : 0, (long)(iid!=0?(long)iid->Data1:0), hr, (long long)(object!=0&&*object!=0));
+    }
+    return hr;
 }
 
 static ULONG STDMETHODCALLTYPE a11y_uia_callback_provider_add_ref(
@@ -2851,7 +2864,7 @@ static ULONG STDMETHODCALLTYPE a11y_uia_callback_advise_events_release(
       ((IRawElementProviderSimple *)provider);
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_advise_events_added(
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_advise_events_added_impl(
     IRawElementProviderAdviseEvents *self,
     EVENTID event_id,
     SAFEARRAY *property_ids) {
@@ -2883,7 +2896,20 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_advise_events_added(
             : 0);
 }
 
-static HRESULT STDMETHODCALLTYPE a11y_uia_callback_advise_events_removed(
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_advise_events_added(
+    IRawElementProviderAdviseEvents *self,
+    EVENTID event_id,
+    SAFEARRAY *property_ids) {
+    HRESULT hr = a11y_uia_callback_advise_events_added_impl(self, event_id, property_ids);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = a11y_uia_callback_advise_events_owner(self);
+        a11y_uia_trace("advise_events_added", owner != 0 ? owner->provider : 0, (long)event_id, hr, 0);
+    }
+    return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_advise_events_removed_impl(
     IRawElementProviderAdviseEvents *self,
     EVENTID event_id,
     SAFEARRAY *property_ids) {
@@ -2913,6 +2939,19 @@ static HRESULT STDMETHODCALLTYPE a11y_uia_callback_advise_events_removed(
         provider != 0 && provider->report != 0
             ? &provider->report->advise_events_unadvise_callback_succeeded
             : 0);
+}
+
+/* Traced under A11YKIT_TRACE: what UI Automation asks, and the answer. */
+static HRESULT STDMETHODCALLTYPE a11y_uia_callback_advise_events_removed(
+    IRawElementProviderAdviseEvents *self,
+    EVENTID event_id,
+    SAFEARRAY *property_ids) {
+    HRESULT hr = a11y_uia_callback_advise_events_removed_impl(self, event_id, property_ids);
+    if (a11y_uia_tracing()) {
+        struct a11y_uia_callback_provider *owner = a11y_uia_callback_advise_events_owner(self);
+        a11y_uia_trace("advise_events_removed", owner != 0 ? owner->provider : 0, (long)event_id, hr, 0);
+    }
+    return hr;
 }
 
 static const IRawElementProviderAdviseEventsVtbl
