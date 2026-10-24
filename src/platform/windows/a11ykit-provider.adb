@@ -480,7 +480,7 @@ package body A11ykit.Provider is
          Session := A11y.Native_Identity.No_Session;
    end Stop;
 
-   procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
+   procedure Publish_Valid (Tree : A11ykit.Tree.Accessibility_Tree) is
       Changed : Boolean;
       type Semantic_Access is access A11y.Sessions.Semantic_Session;
       procedure Free is new Ada.Unchecked_Deallocation
@@ -653,6 +653,12 @@ package body A11ykit.Provider is
          A11ykit.Provider_Runtime.Record_Publish_Result
            (A11y.Results.Internal_Error, 0, Backend_Name, False,
             A11y.Results.Internal_Error);
+   end Publish_Valid;
+
+   --  The tree's text made valid UTF-8 first: what the host is sent must be.
+   procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
+   begin
+      Publish_Valid (A11ykit.Tree.With_Valid_Text (Tree));
    end Publish;
 
    --  Queries reach this host's provider through the window system's own

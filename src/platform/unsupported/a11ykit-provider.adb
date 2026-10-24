@@ -21,9 +21,15 @@ package body A11ykit.Provider is
       null;
    end Stop;
 
-   procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
+   procedure Publish_Valid (Tree : A11ykit.Tree.Accessibility_Tree) is
    begin
       A11ykit.Provider_Runtime.Publish (Tree);
+   end Publish_Valid;
+
+   --  The tree's text made valid UTF-8 first: what the host is sent must be.
+   procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
+   begin
+      Publish_Valid (A11ykit.Tree.With_Valid_Text (Tree));
    end Publish;
 
    --  Queries reach this host's provider through the window system's own

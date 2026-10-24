@@ -367,5 +367,29 @@ package body A11ykit_Compatibility_Tests is
             and then Id_Of (Fourth, "a") = Id_Of (First, "a"),
             "stable ids: ids of items long gone are reused");
       end;
+
+      --  Text the host is sent is valid UTF-8: a POSIX file name need not be.
+      declare
+         FFFD    : constant String := Character'Val (16#EF#) & Character'Val (16#BF#) & Character'Val (16#BD#);
+         E_Acute : constant String := Character'Val (16#C3#) & Character'Val (16#A9#);
+         Emoji   : constant String :=
+           Character'Val (16#F0#) & Character'Val (16#9F#) & Character'Val (16#93#) & Character'Val (16#81#);
+         Raw     : Accessibility_Tree;
+         Valid   : Accessibility_Tree;
+      begin
+         Check (Valid_UTF8 ("plain") = "plain", "valid text: ASCII stays as it is");
+         Check (Valid_UTF8 ("caf" & E_Acute & Emoji) = "caf" & E_Acute & Emoji, "valid text: UTF-8 stays as it is");
+         Check (Valid_UTF8 ("bad" & Character'Val (16#FF#) & ".txt") = "bad" & FFFD & ".txt",
+                "valid text: a stray byte becomes U+FFFD");
+         Check (Valid_UTF8 ("x" & Character'Val (16#C3#)) = "x" & FFFD, "valid text: a cut-off sequence becomes U+FFFD");
+         Check (Valid_UTF8 (Character'Val (16#C0#) & Character'Val (16#AF#)) = FFFD & FFFD,
+                "valid text: an overlong form is not accepted");
+         Check (Valid_UTF8 (Character'Val (16#ED#) & Character'Val (16#A0#) & Character'Val (16#80#))
+                  = FFFD & FFFD & FFFD,
+                "valid text: an encoded surrogate is not accepted");
+         Raw.Nodes.Append (Make (Role_List_Item, 0, 0, 10, 10, "bad" & Character'Val (16#FF#)));
+         Valid := With_Valid_Text (Raw);
+         Check (To_String (Valid.Nodes.First_Element.Name) = "bad" & FFFD, "valid text: node names are made valid");
+      end;
    end Run;
 end A11ykit_Compatibility_Tests;

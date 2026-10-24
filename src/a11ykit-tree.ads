@@ -56,4 +56,20 @@ package A11ykit.Tree is
       Parent_Index : Natural)
       return Index_Vectors.Vector;
 
+   --  Tree with every node's name and description made valid UTF-8, each byte
+   --  that does not begin a well-formed sequence replaced by U+FFFD. A name
+   --  can arrive as raw bytes (a POSIX file name need not be UTF-8), and the
+   --  hosts' accessibility interfaces take only valid text: a malformed D-Bus
+   --  string disconnects the application from AT-SPI.
+   --
+   --  @param Tree The tree a consumer published.
+   --  @return The same tree, its text valid UTF-8.
+   function With_Valid_Text (Tree : Accessibility_Tree) return Accessibility_Tree;
+
+   --  Text made valid UTF-8 as With_Valid_Text does.
+   --
+   --  @param Text Bytes meant as UTF-8.
+   --  @return Text, each ill-formed byte replaced by U+FFFD.
+   function Valid_UTF8 (Text : String) return String;
+
 end A11ykit.Tree;

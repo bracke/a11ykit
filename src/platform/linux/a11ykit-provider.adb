@@ -608,7 +608,7 @@ package body A11ykit.Provider is
             A11y.Results.Internal_Error);
    end Publish_Under_Application;
 
-   procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
+   procedure Publish_Valid (Tree : A11ykit.Tree.Accessibility_Tree) is
    begin
       Last_Tree := Tree;
       Publish_Under_Application (Under_Application (Tree));
@@ -616,6 +616,12 @@ package body A11ykit.Provider is
       if not A11y.Linux.ATSPi_Backend_Sessions.Registered (Session) then
          A11ykit.Provider_Runtime.Publish (Tree);
       end if;
+   end Publish_Valid;
+
+   --  The tree's text made valid UTF-8 first: what the host is sent must be.
+   procedure Publish (Tree : A11ykit.Tree.Accessibility_Tree) is
+   begin
+      Publish_Valid (A11ykit.Tree.With_Valid_Text (Tree));
    end Publish;
 
    --  The id the last publication gave the node at Index (of the tree under
