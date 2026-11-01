@@ -1391,11 +1391,13 @@ package body A11y.Linux.DBus_Messages is
                   Error_Name                => Null_Unbounded_String,
                   Sender_Name               => Null_Unbounded_String,
                   Body_Signature            => To_Unbounded_String (Event_Body_Signature),
-                  --  A state-changed event reports a state being set.
+                  --  A state-changed event reports whether its state was set.
                   Body_Bytes                =>
                     Event_Body
                       (To_String (Detail),
-                       (if To_String (Member) = "StateChanged" then 1 else Message.Detail1),
+                       (if To_String (Member) = "StateChanged"
+                        then (if Message.State_Unset then 0 else 1)
+                        else Message.Detail1),
                        To_String (Message.Child_Bus_Name),
                        To_String (Message.Child_Path)),
                   Body_Object_Path_Argument => Null_Unbounded_String,
@@ -5746,6 +5748,7 @@ package body A11y.Linux.DBus_Messages is
          Object_Path  => Signal.Object_Path,
          Event_Name   => Signal.Event_Name,
          Detail1      => 0,
+         State_Unset  => Length (Signal.State_Detail) > 0 and then not Signal.State_Value,
          Child_Bus_Name => Null_Unbounded_String,
          Child_Path   => Null_Unbounded_String);
    exception

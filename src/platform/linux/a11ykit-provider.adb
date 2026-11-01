@@ -14,6 +14,7 @@ with A11ykit.Provider_Runtime;
 
 with A11y;
 with A11y.Events;
+with A11y.States;
 with A11y.Linux.ATSPi_Backend_Sessions;
 with A11y.Linux.ATSPi_Startup;
 with A11y.Linux.ATSPi_Method_Router;
@@ -65,6 +66,9 @@ package body A11ykit.Provider is
       Signature : Unbounded_String;  --  role, name, parent id
       Parent    : Natural := 0;      --  parent's id
       Position  : Positive := 1;     --  place among its parent's children
+      --  The states a screen reader is told about when they change.
+      Selected  : Boolean := False;
+      Enabled   : Boolean := True;
    end record;
 
    package Published_Maps is new Ada.Containers.Ordered_Maps (Positive, Published_Node);
@@ -563,6 +567,53 @@ package body A11ykit.Provider is
             end;
          end if;
 
+         --  Nodes still there whose selection or availability changed: a
+         --  state-changed event each, so a selection is announced even when
+         --  the focus does not move (an item activated in a window that is
+         --  not the active one). A signature does not include states, so
+         --  these are told apart here.
+         if not First and then A11y.Results.Succeeded (Result) then
+            for Index in Tree.Nodes.First_Index .. Tree.Nodes.Last_Index loop
+               declare
+                  Id    : constant Positive := Id_At (Tree, Index);
+                  State : constant A11ykit.State := Tree.Nodes (Index).Node_State;
+
+                  procedure Announce (Flag : A11y.States.State_Flag; Was, Is_Now : Boolean) is
+                     Queued : A11y.Results.Result;
+                  begin
+                     if Was = Is_Now then
+                        return;
+                     end if;
+                     Last_Delivered := Last_Delivered + 1;
+                     A11y.Linux.ATSPi_Backend_Sessions.Queue_State_Event_Signal
+                       (Session,
+                        (Sequence  => Last_Delivered,
+                         Timestamp => Ada.Calendar.Clock,
+                         Source    => A11y.Node_Ids.From_Natural (Id),
+                         Kind      => A11y.Events.State_Changed,
+                         Revision  => A11y.Initial_Revision),
+                        (State     => Flag,
+                         Source    => A11y.States.Application_Provided,
+                         Old_Value => Was,
+                         New_Value => Is_Now),
+                        Queued);
+                     if A11y.Results.Succeeded (Queued) then
+                        Delivered := Delivered + 1;
+                     end if;
+                  end Announce;
+               begin
+                  if Last_Published.Contains (Id) then
+                     declare
+                        Before : constant Published_Node := Last_Published.Element (Id);
+                     begin
+                        Announce (A11y.States.Selected, Before.Selected, State.Selected);
+                        Announce (A11y.States.Enabled, Before.Enabled, State.Enabled);
+                     end;
+                  end if;
+               end;
+            end loop;
+         end if;
+
          --  Remember the publication by id.
          Last_Published.Clear;
          declare
@@ -577,7 +628,11 @@ package body A11ykit.Provider is
                   Children.Include (Key, Place);
                   Last_Published.Include
                     (Id_At (Tree, Index),
-                     (Signature => Signatures (Index), Parent => Parent, Position => Place));
+                     (Signature => Signatures (Index),
+                      Parent    => Parent,
+                      Position  => Place,
+                      Selected  => Tree.Nodes (Index).Node_State.Selected,
+                      Enabled   => Tree.Nodes (Index).Node_State.Enabled));
                end;
             end loop;
          end;

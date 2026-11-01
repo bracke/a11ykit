@@ -247,6 +247,13 @@ package A11y.Linux.ATSPi_Backend_Sessions is
       Payload : A11y.Events.Tree_Event_Payload;
       Result  : out A11y.Results.Result);
 
+   --  A state set or cleared on a node: which state, and its new value.
+   procedure Queue_State_Event_Signal
+     (Session : in out Backend_Session;
+      Event   : A11y.Events.Event;
+      Payload : A11y.Events.State_Event_Payload;
+      Result  : out A11y.Results.Result);
+
    type Prepared_Signal_Queue_Report is record
       Registered             : Boolean := False;
       Pending_Outgoing_Before : Natural := 0;

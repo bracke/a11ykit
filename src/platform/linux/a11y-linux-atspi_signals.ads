@@ -35,6 +35,8 @@ package A11y.Linux.ATSPi_Signals is
             Event_Name  : Ada.Strings.Unbounded.Unbounded_String;
             Property_Detail : Ada.Strings.Unbounded.Unbounded_String;
             State_Detail : Ada.Strings.Unbounded.Unbounded_String;
+            --  Whether State_Detail's state became set (True) or cleared.
+            State_Value : Boolean := True;
             Relation_Detail : Ada.Strings.Unbounded.Unbounded_String;
             Has_Bounds_Payload : Boolean := False;
             Old_Bounds : A11y.Geometry.Rectangle :=

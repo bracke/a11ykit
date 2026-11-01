@@ -89,6 +89,8 @@ package A11y.Linux.DBus_Messages is
          when Signal_Message =>
             Event_Name  : Ada.Strings.Unbounded.Unbounded_String;
             Detail1     : Integer := 0;
+            --  A state-changed event clearing its state (detail1 0, not 1).
+            State_Unset : Boolean := False;
             --  The child a children-changed event names, sent as its (so)
             --  any-data: the sending connection's unique bus name and the
             --  child's object path. Both empty when the event names none.

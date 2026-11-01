@@ -23557,6 +23557,7 @@ begin
          Object_Path    => To_Unbounded_String ("/org/a11y/atspi/cache"),
          Event_Name     => Null_Unbounded_String,
          Detail1        => 0,
+         State_Unset    => False,
          Child_Bus_Name => Null_Unbounded_String,
          Child_Path     => Null_Unbounded_String);
       Envelope := A11y.Linux.DBus_Messages.Build_Transport_Envelope
@@ -23578,6 +23579,7 @@ begin
          Object_Path    => To_Unbounded_String ("/org/a11y/atspi/accessible/root"),
          Event_Name     => To_Unbounded_String ("object:children-changed:add"),
          Detail1        => 0,
+         State_Unset    => False,
          Child_Bus_Name => Null_Unbounded_String,
          Child_Path     => Null_Unbounded_String);
       Envelope := A11y.Linux.DBus_Messages.Build_Transport_Envelope
@@ -23613,6 +23615,7 @@ begin
          Object_Path    => To_Unbounded_String ("/org/a11y/atspi/accessible/root"),
          Event_Name     => To_Unbounded_String ("object:children-changed:remove"),
          Detail1        => 2,
+         State_Unset    => False,
          Child_Bus_Name => To_Unbounded_String (":1.5"),
          Child_Path     => To_Unbounded_String ("/p/7"));
       Envelope := A11y.Linux.DBus_Messages.Build_Transport_Envelope
@@ -25980,6 +25983,31 @@ begin
            (not Signal.Publishable
             and then Signal.Status = A11y.Results.Invalid_Argument,
             "Linux AT-SPI signal layer rejects no-op state payloads");
+
+         --  A state cleared (an item deselected) goes out as cleared: detail1
+         --  0, where a set state sends 1.
+         Payload.State := A11y.States.Selected;
+         Payload.Source := A11y.States.Application_Provided;
+         Payload.Old_Value := True;
+         Payload.New_Value := False;
+         Event.Sequence := 50;
+         Signal := A11y.Linux.ATSPi_Signals.Build_Signal
+           (Session, Event, Payload);
+         declare
+            Message_Result : A11y.Results.Result;
+            Message : constant A11y.Linux.DBus_Messages.Outgoing_Message :=
+              (if Signal.Publishable
+               then A11y.Linux.DBus_Messages.Build_Signal (Signal, 50, Message_Result)
+               else (Kind => A11y.Linux.DBus_Messages.Error_Return, others => <>));
+         begin
+            Check
+              (Signal.Publishable
+               and then To_String (Signal.Event_Name) = "object:state-changed:selected"
+               and then not Signal.State_Value
+               and then Message.Kind = A11y.Linux.DBus_Messages.Signal_Message
+               and then Message.State_Unset,
+               "Linux AT-SPI signal layer sends a cleared state as cleared");
+         end;
       end;
 
       declare
