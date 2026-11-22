@@ -12,3 +12,7 @@ tests/config/
 
 *.ali
 *.o
+
+examples/obj/
+examples/bin/
+/debug_validate
