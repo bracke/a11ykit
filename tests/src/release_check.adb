@@ -1712,7 +1712,7 @@ procedure Release_Check is
            ("../hostkit/src/hostkit-process.ads", "function Environment_Value")
          and then File_Contains
            ("../hostkit/src/hostkit-process.adb",
-            "Ada.Environment_Variables")
+            "Hostkit.Environment.Value")
          and then File_Contains
            ("src/platform/linux/a11y-linux-atspi_startup.ads",
             "Prepare_From_Host_Environment")
