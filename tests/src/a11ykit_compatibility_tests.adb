@@ -49,10 +49,76 @@ package body A11ykit_Compatibility_Tests is
       return Result;
    end Make;
 
+   --  Build's parents as the rule states them, every node tried as every
+   --  node's parent: what the area-ordered search must agree with.
+   function Reference_Parent (Nodes : Node_Vectors.Vector; Child : Positive) return Natural is
+      function Area (Box : Rectangle) return Natural is (Box.Width * Box.Height);
+      function Encloses (Outer, Inner : Rectangle) return Boolean is
+        (Inner.X >= Outer.X and then Inner.Y >= Outer.Y
+         and then Inner.X + Inner.Width <= Outer.X + Outer.Width
+         and then Inner.Y + Inner.Height <= Outer.Y + Outer.Height);
+      Box  : constant Rectangle := Nodes (Child).Bounds;
+      Best : Natural := 0;
+   begin
+      for Cand in Nodes.First_Index .. Nodes.Last_Index loop
+         declare
+            Outer : constant Rectangle := Nodes (Cand).Bounds;
+         begin
+            if Cand /= Child and then Encloses (Outer, Box)
+              and then (Area (Outer) > Area (Box) or else (Area (Outer) = Area (Box) and then Cand < Child))
+              and then (Best = 0
+                        or else Area (Outer) < Area (Nodes (Best).Bounds)
+                        or else (Area (Outer) = Area (Nodes (Best).Bounds) and then Cand < Best))
+            then
+               Best := Cand;
+            end if;
+         end;
+      end loop;
+      return Best;
+   end Reference_Parent;
+
+   --  Many nodes, nested, overlapping, repeated and of no area: Build gives
+   --  each the parent the rule names.
+   procedure Check_Parents_Match_The_Rule is
+      Seed   : Natural := 12_345;
+      Flat   : Node_Vectors.Vector;
+      Tree   : Accessibility_Tree;
+      Agreed : Boolean := True;
+
+      function Next (Limit : Positive) return Natural is
+      begin
+         Seed := (Seed * 1_103 + 12_345) mod 65_536;
+         return Seed mod Limit;
+      end Next;
+   begin
+      Flat.Append (Make (Role_Window, 0, 0, 400, 400, "window"));
+      for Index in 1 .. 600 loop
+         declare
+            X : constant Natural := Next (380);
+            Y : constant Natural := Next (380);
+         begin
+            Flat.Append
+              (Make (Role_Pane, X, Y,
+                     (if Index mod 37 = 0 then 0 else Next (400 - X) + 1),
+                     (if Index mod 41 = 0 then 0 else Next (400 - Y) + 1), "node"));
+            if Index mod 13 = 0 then
+               --  The same rectangle drawn again.
+               Flat.Append (Flat.Last_Element);
+            end if;
+         end;
+      end loop;
+      Tree := Build (Flat);
+      for Index in Flat.First_Index .. Flat.Last_Index loop
+         Agreed := Agreed and then Tree.Nodes (Index).Parent = Reference_Parent (Flat, Index);
+      end loop;
+      Check (Agreed, "every node's parent is the tightest earlier-or-larger container");
+   end Check_Parents_Match_The_Rule;
+
    procedure Run is
       Flat : Node_Vectors.Vector;
       Tree : Accessibility_Tree;
    begin
+      Check_Parents_Match_The_Rule;
       --  A window enclosing a toolbar (which holds a button) and a list. The
       --  button sits inside both the window and the toolbar, so the tightest
       --  container -- the toolbar -- must win.
