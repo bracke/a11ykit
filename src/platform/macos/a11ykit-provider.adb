@@ -3,6 +3,7 @@ with System;
 with Ada.Unchecked_Deallocation;
 
 with A11ykit.Compatibility;
+with A11ykit.Stable_Ids;
 with A11ykit.MacOS_Snapshots;
 with A11ykit.Provider_Runtime;
 
@@ -66,6 +67,29 @@ package body A11ykit.Provider is
    --  The tree last published, to turn a request's node into the index and
    --  bounds the application acts on.
    Last_Tree : A11ykit.Tree.Accessibility_Tree;
+
+   --  Each node keeps its id while its item is published (A11ykit.Stable_Ids),
+   --  so an element a client holds, or a request it sent just before a
+   --  republish, still names that item, not whatever now sits at its index.
+   Ids : A11ykit.Stable_Ids.Id_State;
+
+   --  The id Tree publishes its node at Index under; 0 for none.
+   function Id_Of (Tree : A11ykit.Tree.Accessibility_Tree; Index : Natural) return Natural is
+     (if Index = 0 then 0 else A11y.Node_Ids.To_Natural (A11ykit.Compatibility.Node_Id_For_Index (Tree, Index)));
+
+   --  The index of the node the last published tree gave Id; 0 for none.
+   function Index_Of_Id (Id : Natural) return Natural is
+   begin
+      if Last_Tree.Ids.Is_Empty then
+         return (if Id in Last_Tree.Nodes.First_Index .. Last_Tree.Nodes.Last_Index then Id else 0);
+      end if;
+      for Index in Last_Tree.Ids.First_Index .. Last_Tree.Ids.Last_Index loop
+         if Last_Tree.Ids (Index) = Id then
+            return Index;
+         end if;
+      end loop;
+      return 0;
+   end Index_Of_Id;
 
    --  The root the host was installed for and the focus last announced, so a
    --  republish of the same window keeps the elements a client holds.
@@ -258,7 +282,8 @@ package body A11ykit.Provider is
    end Element_Code;
 
    --  The tree's nodes without a parent, the application's windows, in tree
-   --  order; and for each node the window it belongs to.
+   --  order; and for each node the window it belongs to -- all by the ids
+   --  they are published under.
    procedure Note_Windows (Tree : A11ykit.Tree.Accessibility_Tree; Tops : out Window_Nodes) is
       Count : Natural := 0;
    begin
@@ -268,10 +293,10 @@ package body A11ykit.Provider is
          if Tree.Nodes (Index).Parent = 0 then
             Count := Count + 1;
             if Count <= Max_Windows then
-               Tops (Count) := Index;
+               Tops (Count) := Id_Of (Tree, Index);
             end if;
          end if;
-         if Index in Callback_Context.Window_Of'Range then
+         if Id_Of (Tree, Index) in Callback_Context.Window_Of'Range then
             declare
                Current : Natural := Index;
                Steps   : Natural := 0;
@@ -280,7 +305,7 @@ package body A11ykit.Provider is
                   Current := Tree.Nodes (Current).Parent;
                   Steps := Steps + 1;
                end loop;
-               Callback_Context.Window_Of (Index) := Current;
+               Callback_Context.Window_Of (Id_Of (Tree, Index)) := Id_Of (Tree, Current);
             end;
          end if;
       end loop;
@@ -367,7 +392,8 @@ package body A11ykit.Provider is
          Session := A11y.Native_Identity.No_Session;
    end Stop;
 
-   procedure Publish_Valid (Tree : A11ykit.Tree.Accessibility_Tree) is
+   procedure Publish_Valid (Plain : A11ykit.Tree.Accessibility_Tree) is
+      Tree    : A11ykit.Tree.Accessibility_Tree := Plain;
       Changed : Boolean;
       type Semantic_Access is access A11y.Sessions.Semantic_Session;
       procedure Free is new Ada.Unchecked_Deallocation
@@ -381,6 +407,7 @@ package body A11ykit.Provider is
           .Public_Root_Export_Report;
       Delivered_Events : Natural := 0;
    begin
+      A11ykit.Stable_Ids.Assign (Ids, Tree);
       Changed := not A11ykit.Tree."=" (Tree, Last_Tree);
       Last_Tree := Tree;
       Root := Root_Node (Tree, Result);
@@ -542,15 +569,17 @@ package body A11ykit.Provider is
       end if;
    end Set_Active;
 
-   --  A press or focus the screen reader asked for, as the node's index in
-   --  the last published tree (whose node ids are those indices).
+   --  A press or focus the screen reader asked for, as the index in the last
+   --  published tree of the node it named by id. A request for a node that
+   --  is no longer published is dropped, not turned on whatever took its
+   --  place.
    function Next_Request (Item : out Request) return Boolean is
       Raw : A11y.Native_Requests.Request;
    begin
       Item := (others => <>);
       while A11y.Native_Requests.Pop (Raw) loop
          declare
-            Index : constant Natural := A11y.Node_Ids.To_Natural (Raw.Node);
+            Index : constant Natural := Index_Of_Id (A11y.Node_Ids.To_Natural (Raw.Node));
          begin
             if Index in Last_Tree.Nodes.First_Index .. Last_Tree.Nodes.Last_Index then
                Item :=

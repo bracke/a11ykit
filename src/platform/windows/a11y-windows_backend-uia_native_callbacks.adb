@@ -1660,8 +1660,8 @@ package body A11y.Windows_Backend.UIA_Native_Callbacks is
                Best_Area : Long_Long_Integer := Long_Long_Integer'Last;
             begin
                for Index in View.Window_Of'Range loop
-                  --  The table covers the tree's nodes, 1 .. N, and no more.
-                  exit when View.Window_Of (Index) = 0;
+                  --  The table is by published id (A11ykit.Stable_Ids): an id
+                  --  not in the tree, a gap among them, holds 0.
                   if View.Window_Of (Index) = Window and then Window /= 0 then
                      declare
                         Box : constant A11y.Geometry.Rectangle := View.Snapshots.Fragment.Bounds (Index);

@@ -9,8 +9,9 @@ with A11y.Trees;
 
 package A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
 
-   --  For each node of the published tree, the top-level node (a window of
-   --  the application) it belongs to; 0 for a node not in the tree.
+   --  For each node of the published tree, by the id it is published under,
+   --  the id of the top-level node (a window of the application) it belongs
+   --  to; 0 for an id not in the tree.
    type Window_Table is
      array (Positive range 1 .. A11y.Trees.Max_Attached_Nodes) of Natural;
 

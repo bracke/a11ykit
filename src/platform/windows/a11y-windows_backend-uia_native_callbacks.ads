@@ -22,8 +22,9 @@ package A11y.Windows_Backend.UIA_Native_Callbacks is
    type Node_Export_Table is
      array (Positive range 1 .. A11y.Trees.Max_Attached_Nodes) of Node_Export;
 
-   --  For each node of the published tree, the top-level node (a window of
-   --  the application) it belongs to; 0 for a node not in the tree.
+   --  For each node of the published tree, by the id it is published under,
+   --  the id of the top-level node (a window of the application) it belongs
+   --  to; 0 for an id not in the tree.
    type Window_Table is
      array (Positive range 1 .. A11y.Trees.Max_Attached_Nodes) of Natural;
 

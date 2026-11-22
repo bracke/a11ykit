@@ -673,7 +673,8 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
             return A11y.Node_Ids.No_Node;
          end if;
          for Index in View.Window_Of'Range loop
-            exit when View.Window_Of (Index) = 0;
+            --  The table is by published id (A11ykit.Stable_Ids): an id not
+            --  in the tree, a gap among them, holds 0.
             if View.Window_Of (Index) = Window then
                declare
                   Box  : constant A11y.Geometry.Rectangle := View.Snapshots.Hierarchy.Bounds (Index);
