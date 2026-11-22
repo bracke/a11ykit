@@ -237,7 +237,9 @@ The forward-compatible public API is the `A11y` package hierarchy. The original
   `Last_Publish_Selection_Status` expose that semantic handoff. It reports the
   same hostkit-backed backend name as `A11y.Platforms.Native_Backend_Name`, and
   `Available` reports whether a native provider session is currently
-  registered with the host accessibility service.
+  registered with the host accessibility service, and `Listening` whether an
+  assistive technology is listening, so an application can publish less
+  often while nobody is.
 * `A11ykit.Tree` — The accessibility tree a consumer builds and hands to
   A11ykit.Provider; `A11ykit.Compatibility.Validate_Tree` checks legacy
   snapshots for a single root, valid parent/focus indexes, and parent cycles

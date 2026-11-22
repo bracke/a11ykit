@@ -25,6 +25,21 @@ package A11ykit.Provider is
    --  registration has not completed.
    function Available return Boolean;
 
+   --  Is an assistive technology (a screen reader, a magnifier, a UI
+   --  Automation client) listening to this application? Cheap enough to ask
+   --  on every frame. It lets an application publish less often while
+   --  nobody is listening, never not at all: an assistive technology finds
+   --  the application through a published tree, and is answered from the
+   --  last one until the application publishes again.
+   --
+   --  Windows answers with UI Automation's own UiaClientsAreListening; on
+   --  Linux and macOS it is True once an assistive technology has called
+   --  into the published tree, and stays True. Where the host has no
+   --  provider it is False.
+   --
+   --  @return True when an assistive technology is listening.
+   function Listening return Boolean;
+
    --  Register the application with the host accessibility service so a screen
    --  reader can discover it. Idempotent. Platform bodies may defer actual
    --  registration until Publish has a root node to expose.

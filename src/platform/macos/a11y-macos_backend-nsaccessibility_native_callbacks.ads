@@ -93,4 +93,11 @@ package A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
       return A11y.MacOS_Backend.NSAccessibility_Native_Bridge.Native_Status
    with Convention => C;
 
+   --  Whether any assistive technology has called into the tree since the
+   --  application started: macOS tells an application nothing else about
+   --  who is listening.
+   --
+   --  @return True once a callback has run.
+   function Was_Queried return Boolean;
+
 end A11y.MacOS_Backend.NSAccessibility_Native_Callbacks;

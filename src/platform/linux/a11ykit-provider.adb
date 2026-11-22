@@ -302,6 +302,13 @@ package body A11ykit.Provider is
       return A11y.Linux.ATSPi_Backend_Sessions.Registered (Session);
    end Available;
 
+   --  Set once an assistive technology has called into the published tree
+   --  (Serve saw a method call), and kept: the bus says nothing cheaper
+   --  about who listens.
+   Queried : Boolean := False;
+
+   function Listening return Boolean is (Queried);
+
    procedure Start is
    begin
       null;
@@ -348,6 +355,10 @@ package body A11ykit.Provider is
       end if;
       A11y.Linux.ATSPi_Backend_Sessions.Drive_Bounded_Event_Loop
         (Session, Latest.all, Iterations, 0, Report, Result);
+      if not Queried and then Report.Pump.Registered_Method_Calls > 0 then
+         Queried := True;
+         Trace ("an assistive technology called into the tree");
+      end if;
       --  One call that cannot be served (an unknown method, say, as a client
       --  that introspects first sends) is that caller's problem, not the
       --  connection's: only a transport failure ends the registration.

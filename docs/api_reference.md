@@ -117,7 +117,10 @@ last semantic handoff result. `A11ykit.Provider` maps to the backend selection/d
 `A11ykit.Provider.Backend_Name`
 uses the same hostkit-backed name as `A11y.Platforms.Native_Backend_Name`, while
 `Available` reports whether the platform facade currently has a registered
-native provider session.
+native provider session. `Listening` reports whether an assistive technology
+is listening (UI Automation's `UiaClientsAreListening` on Windows; on Linux
+and macOS, whether one has called into the published tree), so an
+application may publish less often while nobody listens, but never stop.
 `A11y` backend session and native provider registration path. These
 compatibility packages are retained rather than removed; migration should be
 additive until a specific legacy behavior is proven unsafe or semantically wrong.

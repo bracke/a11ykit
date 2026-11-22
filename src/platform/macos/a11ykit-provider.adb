@@ -245,6 +245,10 @@ package body A11ykit.Provider is
          Result := (Status => A11y.Results.Internal_Error);
    end Publish_Queued_Events;
 
+   --  macOS says nothing about who listens; an assistive technology that
+   --  has called into the tree is.
+   function Listening return Boolean is (Callbacks.Was_Queried);
+
    function Available return Boolean is
    begin
       return Host_Object /= System.Null_Address;

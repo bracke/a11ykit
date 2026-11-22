@@ -317,6 +317,14 @@ package body A11ykit.Provider is
          Result := (Status => A11y.Results.Internal_Error);
    end Publish_Queued_Events;
 
+   function Listening return Boolean is
+   begin
+      return Native.Clients_Listening /= 0;
+   exception
+      when others =>
+         return True;
+   end Listening;
+
    function Available return Boolean is
    begin
       return Published;

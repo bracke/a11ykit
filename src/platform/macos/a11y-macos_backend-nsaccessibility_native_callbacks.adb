@@ -59,6 +59,12 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
    package Context_Conversions is
      new System.Address_To_Access_Conversions (Callback_Context);
 
+   --  Set by the first call any assistive technology makes into the tree;
+   --  written on the thread the window system calls back on.
+   Queried : Boolean := False with Atomic;
+
+   function Was_Queried return Boolean is (Queried);
+
    use type System.Address;
    use type Native.Native_UInt64;
    use type Native.Native_UInt32;
@@ -434,6 +440,7 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
    is
       Routed : Router.Routed_Reply;
    begin
+      Queried := True;
       return
         (if Dispatch (Session, Node, Selector, Operand, Context, Routed)
          then Success
@@ -462,6 +469,7 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
       Values : UInt32_Buffer := [others => 0];
       Count  : Natural := 0;
    begin
+      Queried := True;
       Reset_Out_Parameters (Value_Kind, Item_Count, UTF8_Used);
 
       if Value_Kind = null
@@ -744,6 +752,7 @@ package body A11y.MacOS_Backend.NSAccessibility_Native_Callbacks is
       end Add_Focused_Node;
 
    begin
+      Queried := True;
       if Item_Count /= null then
          Item_Count.all := 0;
       end if;

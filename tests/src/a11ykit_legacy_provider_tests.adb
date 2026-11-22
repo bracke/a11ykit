@@ -87,6 +87,11 @@ package body A11ykit_Legacy_Provider_Tests is
       Check
         (not A11ykit.Provider.Available,
          "legacy provider facade remains unavailable until native provider registration exists");
+      --  Nothing has called into a tree yet. UI Automation answers for the
+      --  whole desktop, where a runner may well have a client listening.
+      Check
+        (A11ykit.Provider.Backend_Name = "UI Automation" or else not A11ykit.Provider.Listening,
+         "no assistive technology is listening before one has called into the tree");
       A11ykit.Provider.Start;
       A11ykit.Provider.Publish (Publication_Tree);
       Check

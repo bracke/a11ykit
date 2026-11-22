@@ -11,6 +11,8 @@ package body A11ykit.Provider is
       return False;
    end Available;
 
+   function Listening return Boolean is (False);
+
    procedure Start is
    begin
       null;
